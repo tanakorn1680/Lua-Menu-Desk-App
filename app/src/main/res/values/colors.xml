@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Same page background as the web UI (light) -->
+    <color name="bg">#F1F4F7</color>
+    <color name="accent">#0A6C8A</color>
+    <color name="icon_bg">#0A6C8A</color>
+</resources>

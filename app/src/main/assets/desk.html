@@ -1,0 +1,1445 @@
+<title>Lua Menu Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<style>
+/* Layout: workbench. Source strip on top, a palette rail on the left, a wrapping grid of script columns on the right. */
+:root {
+  --bg: #f1f4f7;
+  --surface: #ffffff;
+  --well: #e7ecf1;
+  --line: #d2d9e1;
+  --fg: #141a22;
+  --muted: #566270;
+  --accent: #0a6c8a;
+  --accent-fg: #ffffff;
+  --accent-soft: #d8edf4;
+  --warn: #8f5500;
+  --warn-soft: #fff0d0;
+  --bad: #b3261e;
+  --ok: #1d7448;
+  --shadow: 0 6px 20px rgba(20, 26, 34, .18);
+  --font-display: "Bai Jamjuree", "IBM Plex Sans Thai", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1318; --surface: #161c23; --well: #1d252e; --line: #2b3541; --fg: #e5eaef; --muted: #92a0ae;
+    --accent: #4cc3e6; --accent-fg: #04202a; --accent-soft: #12323d; --warn: #f0b45a; --warn-soft: #3a2b10;
+    --bad: #ff8a80; --ok: #6fd6a0; --shadow: 0 6px 20px rgba(0, 0, 0, .5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1318; --surface: #161c23; --well: #1d252e; --line: #2b3541; --fg: #e5eaef; --muted: #92a0ae;
+  --accent: #4cc3e6; --accent-fg: #04202a; --accent-soft: #12323d; --warn: #f0b45a; --warn-soft: #3a2b10;
+  --bad: #ff8a80; --ok: #6fd6a0; --shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-family: var(--font-display); font-size: 26px; line-height: 1.15; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-size: 16px; margin: 0; letter-spacing: .02em; }
+p { margin: 0; }
+.sub { color: var(--muted); font-size: 14px; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.btn {
+  min-height: 38px; padding: 6px 14px; border: 1px solid var(--line); background: var(--surface); border-radius: 6px;
+  font-weight: 500; font-size: 14px; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.small { min-height: 34px; padding: 4px 10px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.icon-btn {
+  width: 34px; height: 34px; display: inline-grid; place-items: center; border: 1px solid transparent; background: transparent;
+  border-radius: 6px; color: var(--muted); font-size: 16px; line-height: 1;
+}
+.icon-btn:hover { background: var(--well); color: var(--fg); }
+.field {
+  min-height: 36px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); width: 100%; min-width: 0;
+}
+.field:focus { border-color: var(--accent); }
+
+/* source strip */
+.source {
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 12px 14px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.source .info { flex: 1 1 260px; min-width: 0; }
+.source .name { font-family: var(--font-mono); font-size: 13.5px; overflow-wrap: anywhere; }
+.tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); margin-left: 6px; vertical-align: 1px; }
+.err { color: var(--bad); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }
+.privacy { font-size: 12.5px; color: var(--muted); }
+
+.bench { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 820px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+
+/* palette */
+.rail { background: var(--well); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.rail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.rail-head .sub { font-size: 12.5px; }
+.pal-list, .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pal, .item {
+  display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px 4px 2px; min-width: 0;
+}
+.grip {
+  flex: none; width: 30px; height: 40px; border: 0; background: transparent; color: var(--muted); cursor: grab; touch-action: none;
+  font-size: 18px; letter-spacing: -2px; border-radius: 4px;
+}
+.grip:hover { color: var(--accent); }
+.body { flex: 1 1 auto; min-width: 0; }
+.pal .name { font-weight: 500; overflow-wrap: anywhere; }
+.meta { font-size: 12px; color: var(--muted); font-family: var(--font-mono); overflow-wrap: anywhere; }
+.pal.used { background: color-mix(in srgb, var(--surface) 70%, var(--well)); }
+
+/* board */
+.board-wrap { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.toolbar .spacer { flex: 1 1 0; }
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; align-items: start; }
+.file { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.file.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.file-head { display: flex; align-items: center; gap: 6px; }
+.file-head .fname { font-family: var(--font-mono); font-weight: 500; }
+.ext { font-family: var(--font-mono); color: var(--muted); font-size: 13px; }
+.opts { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.opts label { display: flex; flex-direction: column; gap: 3px; }
+.opts .chk { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); }
+.opts .chk input { width: 18px; height: 18px; }
+.list { min-height: 48px; padding: 6px; background: var(--well); border-radius: 8px; }
+.list.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.item.group { flex-direction: column; align-items: stretch; padding: 4px 6px 6px 2px; gap: 4px; }
+.item .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.item .lbl { border-color: transparent; background: transparent; padding-inline: 6px; font-weight: 500; }
+.item .lbl:hover { border-color: var(--line); }
+.item.group > .list { margin-left: 30px; background: var(--well); }
+.item.missing { border-color: var(--warn); background: var(--warn-soft); }
+.acts { display: flex; align-items: center; flex: none; }
+.acts select { width: 34px; height: 34px; padding: 0; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 6px; appearance: none; text-align: center; text-align-last: center; cursor: pointer; font-size: 16px; }
+.acts select:hover { background: var(--well); color: var(--fg); }
+@media (hover: hover) and (pointer: fine) { .acts [data-act="up"], .acts [data-act="down"] { display: none; } }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 6px; text-align: center; }
+.drop-line { height: 3px; background: var(--accent); border-radius: 2px; flex: none; }
+.item.dragging { opacity: .3; }
+.ghost { position: fixed; z-index: 60; pointer-events: none; box-shadow: var(--shadow); border-radius: 6px; background: var(--surface); }
+.status { font-size: 12.5px; color: var(--muted); font-family: var(--font-mono); overflow-wrap: anywhere; }
+.status .ok { color: var(--ok); }
+.status .warn { color: var(--warn); font-family: var(--font-body); }
+.file-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto; background: var(--well); border-radius: 6px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+.empty-board { padding: 28px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; }
+
+.folder { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.folder .field { width: 150px; }
+.notes { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.notes b { color: var(--fg); font-weight: 600; }
+#toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 70;
+  background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; max-width: calc(100% - 32px);
+}
+@media (prefers-reduced-motion: no-preference) { .btn, .icon-btn { transition: border-color .12s, background .12s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Lua Menu Desk</h1>
+    <p class="sub">จัดเมนูของสคริปต์ GameGuardian แยก รวม หรือเรียงใหม่ แล้วส่งออกเป็นไฟล์ .lua</p>
+  </header>
+
+  <section class="source" aria-label="สคริปต์ต้นฉบับ">
+    <div class="info">
+      <div><span class="name" id="srcName">-</span><span class="tag" id="srcTag" hidden>ตัวอย่าง</span></div>
+      <div class="sub" id="srcMeta"></div>
+      <div class="err" id="srcErr" hidden></div>
+    </div>
+    <input id="srcFile" type="file" accept=".lua,.txt,text/plain" hidden>
+    <button class="btn primary" id="srcPick" type="button">โหลดสคริปต์ .lua</button>
+    <button class="btn" id="srcDemo" type="button">ใช้สคริปต์ตัวอย่าง</button>
+    <p class="privacy">ไฟล์ถูกประมวลผลในเบราว์เซอร์นี้เท่านั้น ไม่ถูกอัปโหลด</p>
+  </section>
+
+  <div class="bench">
+    <aside class="rail" aria-label="เมนูในสคริปต์">
+      <div class="rail-head"><h2>เมนูในสคริปต์</h2><span class="sub" id="palCount"></span></div>
+      <ul class="pal-list" id="palette"></ul>
+      <p class="sub">ลาก ⠿ ไปวางในไฟล์ หรือกด “เพิ่ม” เมนูเดียวใช้ได้หลายไฟล์</p>
+    </aside>
+
+    <main class="board-wrap">
+      <div class="toolbar">
+        <button class="btn" id="tbNew" type="button">+ ไฟล์ใหม่</button>
+        <button class="btn" id="tbSplit" type="button">แยกทุกเมนูเป็นไฟล์เดี่ยว</button>
+        <button class="btn" id="tbMerge" type="button">รวมเป็นไฟล์เดียว</button>
+        <span class="spacer"></span>
+        <button class="btn" id="tbLayoutSave" type="button" hidden>บันทึกเลย์เอาต์</button>
+        <button class="btn" id="tbLayoutLoad" type="button">โหลดเลย์เอาต์</button>
+        <input id="layoutFile" type="file" accept=".json,application/json" hidden>
+        <label class="folder" id="folderWrap" hidden>โฟลเดอร์ใน Download<input class="field" id="folderIn" placeholder="เช่น GG (ว่าง = Download)" autocomplete="off"></label>
+        <button class="btn primary" id="tbZip" type="button" hidden>บันทึกทุกไฟล์ (.zip)</button>
+      </div>
+      <div class="board" id="board"></div>
+    </main>
+  </div>
+
+  <section class="notes">
+    <p><b>โค้ดของแต่ละเมนูไม่ถูกแก้</b> ทุกไฟล์คัดลอกโค้ดเดิมตามต้นฉบับ แล้วดึงมาเฉพาะส่วนที่เมนูนั้นต้องใช้ เมนูหลักที่สร้างใหม่ใช้ gg.choice รูปแบบเดียวกับต้นฉบับ</p>
+    <p id="noteWeb">ไฟล์ที่บันทึกเป็น .txt ให้เปลี่ยนนามสกุลเป็น .lua ก่อนเปิดใน GameGuardian ไฟล์ใน .zip เป็น .lua อยู่แล้ว</p>
+    <p id="noteApp" hidden>ไฟล์ถูกบันทึกเป็น .lua ในโฟลเดอร์ Download (หรือโฟลเดอร์ย่อยที่ตั้งไว้) เปิดใน GameGuardian ได้ทันที ถ้ามีไฟล์ชื่อเดียวกันที่แอพอื่นสร้างไว้ ระบบจะเติม (1) ต่อท้ายชื่อ ใช้โฟลเดอร์ย่อยแยกเพื่อไม่ให้ชื่อชน</p>
+    <p>ไฟล์ที่เมนูข้างในพึ่งข้อมูลที่เมนูอื่นเตรียมไว้ (เช่นค่าที่ค้นหาเจอแล้ว) จะค้นหาใหม่เองในไฟล์นั้น เพราะแต่ละไฟล์รันแยกกัน</p>
+  </section>
+</div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+/* LuaCore — analyze a GameGuardian-style Lua menu script and generate re-arranged menu files.
+ *
+ * Works on the *text* of the script only. Every statement of the original is copied verbatim;
+ * nothing inside a menu's own code is rewritten. A generated file = prelude + the statements one
+ * menu set depends on (original order) + a generated main menu + the original idle loop.
+ */
+(function (root) {
+  'use strict';
+
+  /* ───────────────────────── tokenizer ───────────────────────── */
+
+  const KEYWORDS = new Set([
+    'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'goto', 'if', 'in',
+    'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while',
+  ]);
+  const OPS3 = new Set(['...']);
+  const OPS2 = new Set(['..', '==', '~=', '<=', '>=', '<<', '>>', '//', '::']);
+  const OPS1 = new Set('+-*/%^#&~|<>=(){}[];:,.'.split(''));
+  const NUM_RE = /0[xX][0-9a-fA-F]*\.?[0-9a-fA-F]*(?:[pP][+-]?\d+)?|\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?/y;
+  const NAME_RE = /[A-Za-z_][A-Za-z0-9_]*/y;
+
+  function longBracketAt(src, pos) {
+    // returns the level (number of '=') if src[pos..] starts a long bracket "[==[", else -1
+    if (src[pos] !== '[') return -1;
+    let j = pos + 1, eq = 0;
+    while (src[j] === '=') { eq++; j++; }
+    return src[j] === '[' ? eq : -1;
+  }
+
+  function tokenize(src) {
+    const toks = [];
+    let pos = 0, line = 1;
+    const n = src.length;
+    while (pos < n) {
+      const c = src[pos];
+      if (c === '\n') { line++; pos++; continue; }
+      if (c === ' ' || c === '\t' || c === '\r' || c === '\f' || c === '\v') { pos++; continue; }
+      if (c === '-' && src[pos + 1] === '-') {
+        const lvl = longBracketAt(src, pos + 2);
+        if (lvl >= 0) {
+          const close = ']' + '='.repeat(lvl) + ']';
+          const j = src.indexOf(close, pos + 2 + lvl + 2);
+          if (j < 0) throw new SyntaxError('unterminated long comment at line ' + line);
+          const end = j + close.length;
+          for (let k = pos; k < end; k++) if (src[k] === '\n') line++;
+          pos = end;
+        } else {
+          while (pos < n && src[pos] !== '\n') pos++;
+        }
+        continue;
+      }
+      if (c === '[') {
+        const lvl = longBracketAt(src, pos);
+        if (lvl >= 0) {
+          const close = ']' + '='.repeat(lvl) + ']';
+          const j = src.indexOf(close, pos + lvl + 2);
+          if (j < 0) throw new SyntaxError('unterminated long string at line ' + line);
+          const end = j + close.length;
+          toks.push({ kind: 'string', text: src.slice(pos, end), line, start: pos, end });
+          for (let k = pos; k < end; k++) if (src[k] === '\n') line++;
+          pos = end;
+          continue;
+        }
+      }
+      if (c === '"' || c === "'") {
+        let j = pos + 1;
+        const startLine = line;
+        while (j < n && src[j] !== c) {
+          if (src[j] === '\\') { if (src[j + 1] === '\n') line++; j += 2; continue; }
+          if (src[j] === '\n') throw new SyntaxError('unterminated string at line ' + line);
+          j++;
+        }
+        if (j >= n) throw new SyntaxError('unterminated string at line ' + line);
+        toks.push({ kind: 'string', text: src.slice(pos, j + 1), line: startLine, start: pos, end: j + 1 });
+        pos = j + 1;
+        continue;
+      }
+      if ((c >= '0' && c <= '9') || (c === '.' && src[pos + 1] >= '0' && src[pos + 1] <= '9')) {
+        NUM_RE.lastIndex = pos;
+        const m = NUM_RE.exec(src);
+        toks.push({ kind: 'number', text: m[0], line, start: pos, end: pos + m[0].length });
+        pos += m[0].length;
+        continue;
+      }
+      if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c === '_') {
+        NAME_RE.lastIndex = pos;
+        const m = NAME_RE.exec(src);
+        toks.push({ kind: KEYWORDS.has(m[0]) ? 'kw' : 'name', text: m[0], line, start: pos, end: pos + m[0].length });
+        pos += m[0].length;
+        continue;
+      }
+      const t3 = src.substr(pos, 3), t2 = src.substr(pos, 2);
+      if (OPS3.has(t3)) { toks.push({ kind: 'op', text: t3, line, start: pos, end: pos + 3 }); pos += 3; continue; }
+      if (OPS2.has(t2)) { toks.push({ kind: 'op', text: t2, line, start: pos, end: pos + 2 }); pos += 2; continue; }
+      if (OPS1.has(c)) { toks.push({ kind: 'op', text: c, line, start: pos, end: pos + 1 }); pos += 1; continue; }
+      throw new SyntaxError('unexpected character ' + JSON.stringify(c) + ' at line ' + line);
+    }
+    return toks;
+  }
+
+  /* ───────────────────────── scope-aware name walker ───────────────────────── */
+
+  const BINPRI = {
+    or: [1, 1], and: [2, 2],
+    '<': [3, 3], '>': [3, 3], '<=': [3, 3], '>=': [3, 3], '~=': [3, 3], '==': [3, 3],
+    '|': [4, 4], '~': [5, 5], '&': [6, 6], '<<': [7, 7], '>>': [7, 7],
+    '..': [9, 8], '+': [10, 10], '-': [10, 10],
+    '*': [11, 11], '/': [11, 11], '//': [11, 11], '%': [11, 11],
+    '^': [14, 13],
+  };
+  const UNARY_PRI = 12;
+  const BLOCK_END = new Set(['end', 'else', 'elseif', 'until']);
+
+  class Walker {
+    constructor(toks, a, b) {
+      this.t = toks; this.i = a; this.end = b;
+      this.scopes = [new Set()];
+      this.reads = new Set(); this.assigns = new Set();
+    }
+    cur() { return this.i <= this.end ? this.t[this.i] : null; }
+    isKw(s) { const c = this.cur(); return c !== null && c.kind === 'kw' && c.text === s; }
+    isOp(s) { const c = this.cur(); return c !== null && c.kind === 'op' && c.text === s; }
+    nextIsOp(s) { const j = this.i + 1; return j <= this.end && this.t[j].kind === 'op' && this.t[j].text === s; }
+    fail(msg) { const c = this.cur(); throw new SyntaxError(msg + ' at line ' + (c ? c.line : '?') + ' near ' + (c ? c.text : 'EOF')); }
+    expectKw(s) { if (!this.isKw(s)) this.fail('expected ' + s); this.i++; }
+    expectOp(s) { if (!this.isOp(s)) this.fail('expected ' + s); this.i++; }
+    declared(n) { for (const s of this.scopes) if (s.has(n)) return true; return false; }
+    use(n) { if (!this.declared(n)) this.reads.add(n); }
+    push(names) { this.scopes.push(new Set(names || [])); }
+    pop() { this.scopes.pop(); }
+    declare(n) { this.scopes[this.scopes.length - 1].add(n); }
+
+    block() {
+      for (;;) {
+        const c = this.cur();
+        if (c === null) return;
+        if (c.kind === 'kw' && BLOCK_END.has(c.text)) return;
+        if (c.kind === 'kw' && c.text === 'return') {
+          this.i++;
+          const d = this.cur();
+          if (d !== null && !(d.kind === 'kw' && BLOCK_END.has(d.text)) && !this.isOp(';')) this.explist();
+          if (this.isOp(';')) this.i++;
+          return;
+        }
+        this.stat();
+      }
+    }
+
+    stat() {
+      const c = this.cur();
+      if (c.kind === 'op' && c.text === ';') { this.i++; return; }
+      if (c.kind === 'op' && c.text === '::') { this.i += 3; return; }
+      if (c.kind === 'kw') {
+        switch (c.text) {
+          case 'break': this.i++; return;
+          case 'goto': this.i += 2; return;
+          case 'do':
+            this.i++; this.push(); this.block(); this.pop(); this.expectKw('end'); return;
+          case 'while':
+            this.i++; this.expr(0); this.expectKw('do'); this.push(); this.block(); this.pop(); this.expectKw('end'); return;
+          case 'repeat':
+            this.i++; this.push(); this.block(); this.expectKw('until'); this.expr(0); this.pop(); return;
+          case 'if':
+            this.i++; this.expr(0); this.expectKw('then'); this.push(); this.block(); this.pop();
+            while (this.isKw('elseif')) {
+              this.i++; this.expr(0); this.expectKw('then'); this.push(); this.block(); this.pop();
+            }
+            if (this.isKw('else')) { this.i++; this.push(); this.block(); this.pop(); }
+            this.expectKw('end'); return;
+          case 'for': {
+            this.i++;
+            const names = [this.cur().text]; this.i++;
+            if (this.isOp('=')) {
+              this.i++; this.expr(0); this.expectOp(','); this.expr(0);
+              if (this.isOp(',')) { this.i++; this.expr(0); }
+            } else {
+              while (this.isOp(',')) { this.i++; names.push(this.cur().text); this.i++; }
+              this.expectKw('in'); this.explist();
+            }
+            this.expectKw('do'); this.push(names); this.block(); this.pop(); this.expectKw('end'); return;
+          }
+          case 'function': {
+            this.i++;
+            const base = this.cur().text; this.i++;
+            let plain = true;
+            while (this.isOp('.') || this.isOp(':')) { plain = false; this.i += 2; }
+            if (plain) { if (!this.declared(base)) this.assigns.add(base); } else this.use(base);
+            this.funcbody(); return;
+          }
+          case 'local': {
+            this.i++;
+            if (this.isKw('function')) {
+              this.i++; const name = this.cur().text; this.i++;
+              this.declare(name); this.funcbody(); return;
+            }
+            const names = [];
+            for (;;) {
+              names.push(this.cur().text); this.i++;
+              if (this.isOp('<')) { while (!this.isOp('>')) this.i++; this.i++; }
+              if (this.isOp(',')) { this.i++; continue; }
+              break;
+            }
+            if (this.isOp('=')) { this.i++; this.explist(); }
+            for (const n of names) this.declare(n);
+            return;
+          }
+          default: this.fail('unexpected keyword ' + c.text);
+        }
+      }
+      const targets = [];
+      for (;;) {
+        targets.push(this.suffixed(true));
+        if (this.isOp(',')) { this.i++; continue; }
+        break;
+      }
+      if (this.isOp('=')) {
+        this.i++; this.explist();
+        for (const bare of targets) if (bare !== null && !this.declared(bare)) this.assigns.add(bare);
+      } else {
+        for (const bare of targets) if (bare !== null) this.use(bare);
+      }
+    }
+
+    explist() { this.expr(0); while (this.isOp(',')) { this.i++; this.expr(0); } }
+
+    expr(limit) {
+      const c = this.cur();
+      if (c === null) this.fail('unexpected end of expression');
+      if ((c.kind === 'kw' && c.text === 'not') || (c.kind === 'op' && (c.text === '-' || c.text === '#' || c.text === '~'))) {
+        this.i++; this.expr(UNARY_PRI);
+      } else this.simple();
+      for (;;) {
+        const d = this.cur();
+        if (d === null) break;
+        const op = (d.kind === 'op' || d.kind === 'kw') ? d.text : null;
+        if (op === null || !Object.prototype.hasOwnProperty.call(BINPRI, op)) break;
+        const pri = BINPRI[op];
+        if (pri[0] <= limit) break;
+        this.i++; this.expr(pri[1]);
+      }
+    }
+
+    simple() {
+      const c = this.cur();
+      if (c.kind === 'number' || c.kind === 'string') { this.i++; return; }
+      if (c.kind === 'kw' && (c.text === 'nil' || c.text === 'true' || c.text === 'false')) { this.i++; return; }
+      if (c.kind === 'op' && c.text === '...') { this.i++; return; }
+      if (c.kind === 'kw' && c.text === 'function') { this.i++; this.funcbody(); return; }
+      if (c.kind === 'op' && c.text === '{') { this.table(); return; }
+      this.suffixed(false);
+    }
+
+    funcbody() {
+      this.expectOp('(');
+      const params = [];
+      while (!this.isOp(')')) { if (this.cur().kind === 'name') params.push(this.cur().text); this.i++; }
+      this.expectOp(')');
+      this.push(params); this.block(); this.pop(); this.expectKw('end');
+    }
+
+    table() {
+      this.expectOp('{');
+      while (!this.isOp('}')) {
+        if (this.isOp('[')) { this.i++; this.expr(0); this.expectOp(']'); this.expectOp('='); this.expr(0); }
+        else if (this.cur().kind === 'name' && this.nextIsOp('=')) { this.i += 2; this.expr(0); }
+        else this.expr(0);
+        if (this.isOp(',') || this.isOp(';')) this.i++;
+      }
+      this.expectOp('}');
+    }
+
+    args() {
+      const c = this.cur();
+      if (c.kind === 'string') this.i++;
+      else if (c.kind === 'op' && c.text === '{') this.table();
+      else { this.expectOp('('); if (!this.isOp(')')) this.explist(); this.expectOp(')'); }
+    }
+
+    suffixed(stmtTarget) {
+      const c = this.cur();
+      if (c.kind === 'name') {
+        this.i++;
+        const d = this.cur();
+        const hasSuffix = d !== null && ((d.kind === 'op' && (d.text === '.' || d.text === '[' || d.text === ':' || d.text === '(' || d.text === '{')) || d.kind === 'string');
+        if (stmtTarget && !hasSuffix) return c.text;
+        this.use(c.text);
+      } else if (c.kind === 'op' && c.text === '(') {
+        this.i++; this.expr(0); this.expectOp(')');
+      } else this.fail('unexpected token');
+      for (;;) {
+        const d = this.cur();
+        if (d === null) break;
+        if (d.kind === 'op' && d.text === '.') this.i += 2;
+        else if (d.kind === 'op' && d.text === '[') { this.i++; this.expr(0); this.expectOp(']'); }
+        else if (d.kind === 'op' && d.text === ':') { this.i += 2; this.args(); }
+        else if ((d.kind === 'op' && (d.text === '(' || d.text === '{')) || d.kind === 'string') this.args();
+        else break;
+      }
+      return null;
+    }
+  }
+
+  function freeNames(toks, a, b) {
+    const w = new Walker(toks, a, b);
+    while (w.i <= b) w.stat();
+    return { reads: w.reads, assigns: w.assigns };
+  }
+
+  /* ───────────────────────── top-level segmentation ───────────────────────── */
+
+  const STMT_START_KW = new Set(['local', 'function', 'if', 'while', 'for', 'do', 'repeat', 'return', 'goto']);
+  const CONT_OPS = new Set([',', '..', '+', '-', '*', '/', '=', '.', ':', '(', '{', '[']);
+  const CONT_KW = new Set(['and', 'or', 'not', 'then', 'do', 'else', 'in', 'local', 'function']);
+
+  function splitTopLevel(toks) {
+    let depth = 0, brk = 0, curStart = -1;
+    const stmts = [];
+    let prev = null;
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i];
+      const atLineStart = prev === null || prev.line !== t.line;
+      if (depth === 0 && brk === 0 && atLineStart && curStart >= 0) {
+        if (t.kind === 'name' || (t.kind === 'kw' && STMT_START_KW.has(t.text))) {
+          const p = prev;
+          const cont = (p.kind === 'op' && CONT_OPS.has(p.text)) || (p.kind === 'kw' && CONT_KW.has(p.text));
+          if (!cont) { stmts.push([curStart, i - 1]); curStart = i; }
+        }
+      }
+      if (curStart < 0) curStart = i;
+      if (t.kind === 'kw') {
+        if (t.text === 'function' || t.text === 'if' || t.text === 'do' || t.text === 'repeat') depth++;
+        else if (t.text === 'end' || t.text === 'until') depth--;
+      } else if (t.kind === 'op') {
+        if (t.text === '(' || t.text === '{' || t.text === '[') brk++;
+        else if (t.text === ')' || t.text === '}' || t.text === ']') brk--;
+      }
+      prev = t;
+    }
+    if (curStart >= 0) stmts.push([curStart, toks.length - 1]);
+    return stmts;
+  }
+
+  const STD = new Set(('assert collectgarbage dofile error getmetatable ipairs load loadfile next pairs pcall print rawequal rawget ' +
+    'rawlen rawset require select setmetatable tonumber tostring type xpcall _G _ENV _VERSION string table math os io utf8 coroutine ' +
+    'debug bit32 gg arg unpack').split(' '));
+
+  function describeStatements(toks, ranges) {
+    return ranges.map(([a, b]) => {
+      const t0 = toks[a];
+      let names = [], kind = 'expr';
+      if (t0.kind === 'kw' && t0.text === 'local') {
+        const t1 = toks[a + 1];
+        if (t1.kind === 'kw' && t1.text === 'function') { kind = 'local_function'; names = [toks[a + 2].text]; }
+        else {
+          kind = 'local_var';
+          let j = a + 1;
+          while (toks[j].kind === 'name') {
+            names.push(toks[j].text);
+            if (toks[j + 1].kind === 'op' && toks[j + 1].text === ',') j += 2; else break;
+          }
+        }
+      } else if (t0.kind === 'kw' && t0.text === 'function') {
+        kind = 'global_function'; names = [toks[a + 1].text];
+      } else if (t0.kind === 'name') {
+        const nx = a + 1 <= b ? toks[a + 1] : null;
+        if (nx && nx.kind === 'op' && (nx.text === '=' || nx.text === ',' || nx.text === '.' || nx.text === '[' || nx.text === ':')) {
+          // "name.field(...)" is a call, not an assignment: look for '=' at depth 0 before the end of the statement
+          kind = 'call'; names = [t0.text];
+          let d = 0;
+          for (let k = a; k <= b; k++) {
+            const tk = toks[k];
+            if (tk.kind === 'op' && (tk.text === '(' || tk.text === '{' || tk.text === '[')) d++;
+            else if (tk.kind === 'op' && (tk.text === ')' || tk.text === '}' || tk.text === ']')) d--;
+            else if (d === 0 && tk.kind === 'op' && tk.text === '=') { kind = 'global_assign'; break; }
+            else if (d === 0 && tk.kind === 'kw') break;
+          }
+        } else { kind = 'call'; names = [t0.text]; }
+      } else if (t0.kind === 'kw') kind = t0.text;
+      const fn = freeNames(toks, a, b);
+      return {
+        kind, names, a, b,
+        lineStart: t0.line, lineEnd: toks[b].line,
+        charStart: toks[a].start, charEnd: toks[b].end,
+        reads: [...fn.reads], writes: [...fn.assigns],
+      };
+    });
+  }
+
+  /* ───────────────────────── analysis ───────────────────────── */
+
+  function unquoteLua(raw) {
+    if (raw[0] === '[') {
+      const m = /^\[=*\[\n?/.exec(raw); const eq = raw.indexOf('[', 1);
+      return raw.slice(eq + 1 + (raw[eq + 1] === '\n' ? 1 : 0), raw.length - (eq + 1));
+    }
+    const body = raw.slice(1, -1);
+    return body.replace(/\\(?:(\d{1,3})|x([0-9a-fA-F]{2})|u\{([0-9a-fA-F]+)\}|z\s*|([\s\S]))/g, (m, dec, hex, uni, ch) => {
+      if (dec !== undefined) return String.fromCharCode(parseInt(dec, 10));
+      if (hex !== undefined) return String.fromCharCode(parseInt(hex, 16));
+      if (uni !== undefined) return String.fromCodePoint(parseInt(uni, 16));
+      if (m[1] === 'z') return '';
+      const map = { n: '\n', t: '\t', r: '\r', a: '\x07', b: '\b', f: '\f', v: '\v' };
+      return Object.prototype.hasOwnProperty.call(map, ch) ? map[ch] : ch;
+    });
+  }
+
+  function luaStr(s) {
+    return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"';
+  }
+
+  function analyze(src) {
+    src = src.replace(/^﻿/, '');
+    const toks = tokenize(src);
+    const ranges = splitTopLevel(toks);
+    const info = describeStatements(toks, ranges);
+
+    const localDefs = new Map(), globDefs = new Map();
+    const add = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+    info.forEach((s, i) => {
+      if (s.kind === 'local_function' || s.kind === 'local_var') s.names.forEach(n => add(localDefs, n, i));
+      else if (s.kind === 'global_function' || s.kind === 'global_assign') s.names.forEach(n => add(globDefs, n, i));
+    });
+
+    function resolve(name, at) {
+      const out = [];
+      const ld = (localDefs.get(name) || []).filter(j => j <= at);
+      if (ld.length) out.push(ld[ld.length - 1]);
+      (globDefs.get(name) || []).forEach(j => out.push(j));
+      return out;
+    }
+
+    info.forEach((s, i) => {
+      const dep = new Set();
+      new Set([...s.reads, ...s.writes]).forEach(n => {
+        // "local x = <expr using x>" refers to the previous x, not to itself
+        const lim = (s.kind === 'local_var' && s.names.includes(n)) ? i - 1 : i;
+        resolve(n, lim).forEach(j => { if (j !== i) dep.add(j); });
+      });
+      s.deps = [...dep];
+    });
+
+    // main menu function + idle loop
+    const showIdx = info.findIndex(s => (s.kind === 'local_function' || s.kind === 'global_function') && s.names[0] === 'showMenu');
+    const loopIdx = info.length - 1 >= 0 && info[info.length - 1].kind === 'while' ? info.length - 1 : -1;
+    if (showIdx < 0) throw new Error('ไม่พบฟังก์ชัน showMenu (เมนูหลัก) ในสคริปต์นี้');
+    if (loopIdx < 0) throw new Error('ไม่พบลูปรอปุ่ม GG ท้ายสคริปต์ (while true do ... isClickedUiButton)');
+
+    const menu = parseMainMenu(src, toks, info[showIdx]);
+
+    // statements that always run at load time: everything that is neither a definition nor the idle loop
+    const alwaysKeep = [];
+    info.forEach((s, i) => {
+      if (i === showIdx || i === loopIdx) return;
+      const defKinds = s.kind === 'local_function' || s.kind === 'local_var' || s.kind === 'global_function';
+      const isStd = s.kind === 'global_assign' && STD.has(s.names[0]);
+      const isOtherAssign = s.kind === 'global_assign' && !STD.has(s.names[0]);
+      if (!defKinds && !isOtherAssign || isStd) alwaysKeep.push(i);
+    });
+
+    const A = { src, toks, info, localDefs, globDefs, showIdx, loopIdx, menu, alwaysKeep, resolve };
+
+    // entries: roots → statement ids
+    menu.entries.forEach(e => {
+      const t = tokenize(e.actionSrc);
+      const fn = freeNames(t, 0, t.length - 1);
+      e.names = [...new Set([...fn.reads, ...fn.assigns])].filter(n => !STD.has(n));
+      e.rootStmts = [];
+      e.names.forEach(n => resolve(n, Infinity).forEach(j => e.rootStmts.push(j)));
+    });
+    const titleToks = tokenize(menu.titleSrc);
+    const tfn = freeNames(titleToks, 0, titleToks.length - 1);
+    menu.titleNames = [...new Set([...tfn.reads, ...tfn.assigns])].filter(n => !STD.has(n));
+    menu.titleRootStmts = [];
+    menu.titleNames.forEach(n => resolve(n, Infinity).forEach(j => menu.titleRootStmts.push(j)));
+
+    // size of each entry's own closure (for the UI)
+    menu.entries.forEach(e => {
+      const cl = closure(A, e.rootStmts);
+      e.closureLines = [...cl].reduce((acc, i) => acc + (info[i].lineEnd - info[i].lineStart + 1), 0);
+      e.closureStmts = cl.size;
+    });
+    return A;
+  }
+
+  function parseMainMenu(src, toks, st) {
+    const a = st.a, b = st.b;
+    // find "gg . choice ("
+    let k = -1;
+    for (let i = a; i < b - 3; i++) {
+      if (toks[i].kind === 'name' && toks[i].text === 'gg' && toks[i + 1].text === '.' && toks[i + 2].text === 'choice' && toks[i + 3].text === '(') { k = i + 3; break; }
+    }
+    if (k < 0) throw new Error('ไม่พบ gg.choice(...) ใน showMenu');
+    let j = k + 1;
+    if (!(toks[j].kind === 'op' && toks[j].text === '{')) throw new Error('showMenu: อาร์กิวเมนต์แรกของ gg.choice ไม่ใช่ตารางรายการ');
+    // labels
+    const labels = [];
+    let d = 0;
+    let tableEnd = -1;
+    for (let i = j; i <= b; i++) {
+      const t = toks[i];
+      if (t.kind === 'op' && (t.text === '{' || t.text === '(' || t.text === '[')) d++;
+      else if (t.kind === 'op' && (t.text === '}' || t.text === ')' || t.text === ']')) { d--; if (d === 0) { tableEnd = i; break; } }
+      else if (d === 1 && t.kind === 'string' && (toks[i - 1].text === '{' || toks[i - 1].text === ',')) labels.push({ raw: t.text, text: unquoteLua(t.text) });
+    }
+    if (tableEnd < 0) throw new Error('showMenu: ตารางรายการไม่ปิด');
+    // 2nd and 3rd args
+    let p = tableEnd + 1;
+    if (!(toks[p].text === ',')) throw new Error('showMenu: รูปแบบ gg.choice ไม่ตรงที่คาดไว้');
+    p++;
+    d = 0;
+    while (!(d === 0 && toks[p].kind === 'op' && toks[p].text === ',')) {
+      const t = toks[p];
+      if (t.kind === 'op' && (t.text === '(' || t.text === '{' || t.text === '[')) d++;
+      else if (t.kind === 'op' && (t.text === ')' || t.text === '}' || t.text === ']')) d--;
+      p++;
+    }
+    p++; // start of title expression
+    const titleStart = p;
+    d = 0;
+    while (!(d === 0 && toks[p].kind === 'op' && toks[p].text === ')')) {
+      const t = toks[p];
+      if (t.kind === 'op' && (t.text === '(' || t.text === '{' || t.text === '[')) d++;
+      else if (t.kind === 'op' && (t.text === ')' || t.text === '}' || t.text === ']')) d--;
+      p++;
+    }
+    const titleSrc = src.slice(toks[titleStart].start, toks[p - 1].end);
+    const callEnd = p;
+
+    // dispatch: "choice == N then <action>"
+    const actions = new Map();
+    for (let i = callEnd; i <= b - 3; i++) {
+      if (toks[i].kind === 'name' && toks[i].text === 'choice' && toks[i + 1].text === '==' && toks[i + 2].kind === 'number' && toks[i + 3].kind === 'kw' && toks[i + 3].text === 'then') {
+        const num = parseInt(toks[i + 2].text, 10);
+        let q = i + 4, depth = 0, last = i + 3;
+        for (; q <= b; q++) {
+          const t = toks[q];
+          if (t.kind === 'kw') {
+            if (t.text === 'function' || t.text === 'if' || t.text === 'do' || t.text === 'repeat') depth++;
+            else if (t.text === 'end' || t.text === 'until') { if (depth === 0) break; depth--; }
+            else if ((t.text === 'elseif' || t.text === 'else') && depth === 0) break;
+          }
+          last = q;
+        }
+        if (last >= i + 4) actions.set(num, src.slice(toks[i + 4].start, toks[last].end).trim());
+      }
+    }
+    const entries = [];
+    labels.forEach((lb, idx) => {
+      const act = actions.get(idx + 1);
+      if (act === undefined) throw new Error('showMenu: ไม่พบการทำงานของรายการที่ ' + (idx + 1) + ' (' + lb.text + ')');
+      entries.push({ id: idx, label: lb.text, labelRaw: lb.raw, actionSrc: act, key: act });
+    });
+    if (!entries.length) throw new Error('showMenu: ไม่พบรายการเมนู');
+    return { entries, titleSrc };
+  }
+
+  function closure(A, roots) {
+    const seen = new Set();
+    const work = [...roots];
+    while (work.length) {
+      const i = work.pop();
+      if (seen.has(i)) continue;
+      seen.add(i);
+      A.info[i].deps.forEach(j => { if (!seen.has(j)) work.push(j); });
+    }
+    return seen;
+  }
+
+  /* ───────────────────────── generator ───────────────────────── */
+
+  const GEN_HEADER = '-- Generated by Lua Menu Organizer. Original code is copied verbatim; only the menu below is generated.';
+
+  function collectLeaves(items, out) {
+    out = out || [];
+    items.forEach(n => { if (n.t === 'group') collectLeaves(n.items, out); else out.push(n); });
+    return out;
+  }
+
+  function generate(A, file, opts) {
+    opts = opts || {};
+    const warnings = [];
+    const byKey = new Map(A.menu.entries.map(e => [e.key, e]));
+
+    // prune items whose entries no longer exist in this script
+    function prune(items) {
+      const out = [];
+      items.forEach(n => {
+        if (n.t === 'group') {
+          const kids = prune(n.items);
+          if (kids.length) out.push({ t: 'group', label: n.label, items: kids });
+        } else if (byKey.has(n.key)) out.push(n);
+        else warnings.push('ไม่พบรายการ "' + (n.label || n.key) + '" ในสคริปต์นี้ จึงข้ามไป');
+      });
+      return out;
+    }
+    const items = prune(file.items || []);
+    if (!items.length) return { lua: null, warnings: warnings.concat(['ไฟล์นี้ไม่มีรายการเมนู']), stats: null };
+
+    const direct = file.direct !== false && items.length === 1;
+    const customTitle = file.title && file.title.trim() ? luaStr(file.title.trim()) : null;
+
+    // group functions
+    let gcount = 0;
+    const groupFns = [];
+    const labelOf = n => (n.label !== undefined && n.label !== null && n.label !== '') ? luaStr(n.label)
+      : byKey.get(n.key).labelRaw;
+
+    function actionCode(n, inGroup, groupIds) {
+      if (n.t === 'group') {
+        const id = groupIds.get(n);
+        return inGroup ? '__menus.g' + id + '()' : 'runOrHome(__menus.g' + id + ')';
+      }
+      const act = byKey.get(n.key).actionSrc;
+      if (inGroup) {
+        const m = /^runOrHome\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)$/.exec(act);
+        if (m) return m[1] + '()';   // let a Home signal unwind to the true main menu
+      }
+      return act;
+    }
+
+    // every branch is an "elseif": both menus emit an "if choice == nil ..." / "if choice == back ..." branch first
+    function dispatch(list, inGroup, groupIds, indent) {
+      const pad = ' '.repeat(indent);
+      const lines = [];
+      list.forEach((n, idx) => {
+        lines.push(pad + 'elseif choice == ' + (idx + 1) + ' then');
+        actionCode(n, inGroup, groupIds).split('\n').forEach(l => lines.push(pad + '  ' + l));
+      });
+      return lines;
+    }
+
+    const groupIds = new Map();
+    (function number(list) {
+      list.forEach(n => { if (n.t === 'group') { groupIds.set(n, ++gcount); number(n.items); } });
+    })(items);
+
+    function emitGroup(n) {
+      const id = groupIds.get(n);
+      n.items.forEach(c => { if (c.t === 'group') emitGroup(c); });
+      const cnt = n.items.length;
+      const lines = [];
+      lines.push('function __menus.g' + id + '()');
+      lines.push('  while true do');
+      lines.push('    local choice = gg.choice({');
+      n.items.forEach(c => lines.push('      ' + (c.t === 'group' ? luaStr(c.label || '📁 Group') : labelOf(c)) + ','));
+      lines.push('      "⬅️ Back",');
+      lines.push('      "🏠 Home"');
+      lines.push('    }, nil, ' + luaStr(n.label || '📁 Group') + ')');
+      lines.push('    if choice == nil or choice == ' + (cnt + 1) + ' then');
+      lines.push('      return');
+      lines.push('    elseif choice == ' + (cnt + 2) + ' then');
+      lines.push('      goHome()');
+      dispatch(n.items, true, groupIds, 4).forEach(l => lines.push(l));
+      lines.push('    end');
+      lines.push('  end');
+      lines.push('end');
+      groupFns.push(lines.join('\n'));
+    }
+    items.forEach(n => { if (n.t === 'group') emitGroup(n); });
+
+    // main menu
+    let menuCode;
+    const needTitle = !direct && !customTitle;
+    if (direct) {
+      menuCode = 'local function showMenu()\n  gg.setVisible(false)\n' + actionCode(items[0], false, groupIds).split('\n').map(l => '  ' + l).join('\n') + '\nend';
+    } else {
+      const L = [];
+      L.push('local function showMenu()');
+      L.push('');
+      L.push('  while true do');
+      L.push('');
+      L.push('    gg.setVisible(true)');
+      L.push('');
+      L.push('    local choice = gg.choice(');
+      L.push('      {');
+      items.forEach((n, idx) => L.push('        ' + (n.t === 'group' ? luaStr(n.label || '📁 Group') : labelOf(n)) + (idx < items.length - 1 ? ',' : '')));
+      L.push('      },');
+      L.push('      nil,');
+      L.push('      ' + (customTitle || A.menu.titleSrc));
+      L.push('    )');
+      L.push('');
+      L.push('    gg.setVisible(false)');
+      L.push('');
+      L.push('    if choice == nil then');
+      L.push('      return');
+      dispatch(items, false, groupIds, 4).forEach(l => L.push(l));
+      L.push('    end');
+      L.push('  end');
+      L.push('end');
+      menuCode = L.join('\n');
+    }
+
+    // which statements are needed
+    const roots = new Set(A.alwaysKeep);
+    collectLeaves(items).forEach(n => byKey.get(n.key).rootStmts.forEach(i => roots.add(i)));
+    if (needTitle) A.menu.titleRootStmts.forEach(i => roots.add(i));
+    ['goHome', 'runOrHome'].forEach(nm => (A.localDefs.get(nm) || []).slice(-1).forEach(i => roots.add(i)));
+    let cl = closure(A, roots);
+    cl.delete(A.showIdx);
+    cl.delete(A.loopIdx);
+    const ids = [...cl].sort((x, y) => x - y);
+
+    const segs = [];
+    const info = A.info, src = A.src;
+    ids.forEach(i => {
+      const prevEnd = i === 0 ? 0 : info[i - 1].charEnd;
+      segs.push(src.slice(prevEnd, info[i].charEnd).replace(/^\s*\n/, ''));
+    });
+    const loopSeg = src.slice(info[A.loopIdx - 1].charEnd, info[A.loopIdx].charEnd).replace(/^\s*\n/, '');
+
+    const out = [];
+    out.push(GEN_HEADER);
+    out.push('-- Script: ' + (file.name || 'menu') + '   Source: ' + (opts.sourceName || 'script.lua'));
+    out.push('');
+    segs.forEach(s => out.push(s.replace(/\s+$/, '')));
+    out.push('');
+    if (groupFns.length) {
+      out.push('-- =========================================');
+      out.push('-- Menu groups (generated)');
+      out.push('-- =========================================');
+      out.push('local __menus = {}');
+      out.push('');
+      groupFns.forEach(g => { out.push(g); out.push(''); });
+    }
+    out.push('-- =========================================');
+    out.push('-- MAIN MENU (generated)');
+    out.push('-- =========================================');
+    out.push('');
+    out.push(menuCode);
+    out.push('');
+    out.push(loopSeg.replace(/\s+$/, ''));
+    out.push('');
+    const lua = out.join('\n');
+    const lines = lua.split('\n').length;
+    return { lua, warnings, stats: { statements: ids.length, lines, bytes: new TextEncoder().encode(lua).length, direct } };
+  }
+
+  /* ───────────────────────── layout helpers ───────────────────────── */
+
+  let uid = 0;
+  function newId(p) { return (p || 'n') + (++uid) + Math.random().toString(36).slice(2, 6); }
+
+  function defaultLayout(A) {
+    // one file that reproduces the original main menu
+    return {
+      version: 1,
+      files: [{
+        id: newId('f'), name: 'SCBI_Main', title: '', direct: true,
+        items: A.menu.entries.map(e => ({ t: 'item', id: newId('i'), key: e.key })),
+      }],
+    };
+  }
+
+  /* ───────────────────────── store-only ZIP ───────────────────────── */
+
+  let CRC_TABLE = null;
+  function crc32(bytes) {
+    if (!CRC_TABLE) {
+      CRC_TABLE = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_TABLE[n] = c >>> 0; }
+    }
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function makeZip(files) {
+    const enc = new TextEncoder();
+    const chunks = [], central = [];
+    let offset = 0;
+    const u16 = v => [v & 255, (v >>> 8) & 255];
+    const u32 = v => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+    files.forEach(f => {
+      const name = enc.encode(f.name), data = f.data, crc = crc32(data);
+      const local = new Uint8Array([0x50, 0x4b, 3, 4, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)]);
+      chunks.push(local, name, data);
+      central.push(new Uint8Array([0x50, 0x4b, 1, 2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), name);
+      offset += local.length + name.length + data.length;
+    });
+    let cdSize = 0;
+    central.forEach(c => { cdSize += c.length; });
+    const end = new Uint8Array([0x50, 0x4b, 5, 6, ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(offset), ...u16(0)]);
+    const all = [...chunks, ...central, end];
+    const total = all.reduce((a, c) => a + c.length, 0);
+    const outb = new Uint8Array(total);
+    let p = 0;
+    all.forEach(c => { outb.set(c, p); p += c.length; });
+    return outb;
+  }
+
+  const api = { tokenize, splitTopLevel, freeNames, analyze, closure, generate, defaultLayout, makeZip, crc32, luaStr, unquoteLua, newId, collectLeaves };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.LuaCore = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  var L = LuaCore;
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  var DEMO_NAME = 'demo_menu.lua';
+  var DEMO_LUA = [
+    '-- Demo menu script (example only)',
+    'if not gg then',
+    '  print("Run inside GameGuardian.")',
+    '  return',
+    'end',
+    '',
+    'gg.setVisible(false)',
+    'gg.showUiButton()',
+    '',
+    'local HOME_SIGNAL = "__GOTO_HOME__"',
+    '',
+    'local function goHome()',
+    '  error(HOME_SIGNAL, 0)',
+    'end',
+    '',
+    'local function runOrHome(fn, ...)',
+    '  local args = { ... }',
+    '  local ok, err = pcall(function() fn(table.unpack(args)) end)',
+    '  if not ok and err ~= HOME_SIGNAL then',
+    '    error(err, 0)',
+    '  end',
+    'end',
+    '',
+    'local titleFrames = { "🏠 【 DEMO MENU 】 🏫", "🏢 【 DEMO MENU 】 🏥" }',
+    'local frame = 1',
+    'local function getTitle()',
+    '  local t = titleFrames[frame]',
+    '  frame = frame % #titleFrames + 1',
+    '  return t',
+    'end',
+    '',
+    'local counter = 0',
+    '',
+    'local function menuCounter()',
+    '  while true do',
+    '    local choice = gg.choice({ "➕ Add 1  [ " .. counter .. " ]", "⬅️ Back", "🏠 Home" }, nil, "🔢 Counter")',
+    '    if choice == nil or choice == 2 then return end',
+    '    if choice == 3 then goHome() end',
+    '    counter = counter + 1',
+    '  end',
+    'end',
+    '',
+    'local function menuNotes()',
+    '  local input = gg.prompt({ "Note" }, { "" }, { "text" })',
+    '  if input ~= nil then gg.alert("Saved: " .. tostring(input[1])) end',
+    'end',
+    '',
+    'local function menuTimer()',
+    '  for i = 3, 1, -1 do',
+    '    gg.toast("⏱️ " .. i)',
+    '    gg.sleep(500)',
+    '  end',
+    '  gg.toast("⏱️ Done")',
+    'end',
+    '',
+    'local function sayHello()',
+    '  gg.toast("👋 Hello")',
+    'end',
+    '',
+    '-- =========================================',
+    '-- MAIN MENU',
+    '-- =========================================',
+    '',
+    'local function showMenu()',
+    '',
+    '  while true do',
+    '',
+    '    gg.setVisible(true)',
+    '',
+    '    local choice = gg.choice(',
+    '      {',
+    '        "🔢 Counter",',
+    '        "📝 Notes",',
+    '        "⏱️ Timer",',
+    '        "👋 Say Hello",',
+    '        "❌ Exit"',
+    '      },',
+    '      nil,',
+    '      getTitle()',
+    '    )',
+    '',
+    '    gg.setVisible(false)',
+    '',
+    '    if choice == nil then',
+    '      return',
+    '',
+    '    elseif choice == 1 then',
+    '      runOrHome(menuCounter)',
+    '',
+    '    elseif choice == 2 then',
+    '      runOrHome(menuNotes)',
+    '',
+    '    elseif choice == 3 then',
+    '      runOrHome(menuTimer)',
+    '',
+    '    elseif choice == 4 then',
+    '      sayHello()',
+    '',
+    '    elseif choice == 5 then',
+    '      os.exit()',
+    '    end',
+    '  end',
+    'end',
+    '',
+    'while true do',
+    '  if gg.isClickedUiButton() then',
+    '    showMenu()',
+    '  end',
+    '  gg.sleep(100)',
+    'end',
+    ''
+  ].join('\n');
+
+  var STORE_KEY = 'luamenudesk.layout.v1:';
+  var SRC_KEY = 'luamenudesk.src.v1';
+  var state = { src: null, A: null, layout: { version: 1, files: [] }, active: null, dl: null, isDemo: true };
+  var drag = null;
+  var toastTimer = 0;
+
+  /* ---------- helpers ---------- */
+  function toast(msg) {
+    var t = $('#toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2600);
+  }
+  function persist() { try { localStorage.setItem(STORE_KEY + (state.src ? state.src.name : ''), JSON.stringify(state.layout)); } catch (e) { /* storage unavailable */ } }
+  function loadStored(name) { try { var s = localStorage.getItem(STORE_KEY + name); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+  function validLayout(l) {
+    if (!l || typeof l !== 'object' || !Array.isArray(l.files)) return false;
+    var okItems = function (items) { return Array.isArray(items) && items.every(function (n) { return n && (n.t === 'item' ? typeof n.key === 'string' : n.t === 'group' && okItems(n.items)); }); };
+    return l.files.every(function (f) { return f && typeof f.name === 'string' && okItems(f.items); });
+  }
+  function ensureIds(layout) {
+    var fix = function (items) { items.forEach(function (n) { if (!n.id) n.id = L.newId(n.t === 'group' ? 'g' : 'i'); if (n.t === 'group') fix(n.items); }); };
+    layout.files.forEach(function (f) { if (!f.id) f.id = L.newId('f'); if (typeof f.direct !== 'boolean') f.direct = true; if (typeof f.title !== 'string') f.title = ''; fix(f.items); });
+  }
+  function walk(items, fn, parent) { items.forEach(function (n) { fn(n, items, parent); if (n.t === 'group') walk(n.items, fn, n); }); }
+  function allFiles() { return state.layout.files; }
+  function listById(id) {
+    var res = null;
+    allFiles().forEach(function (f) { if (f.id === id) res = f.items; walk(f.items, function (n) { if (n.id === id && n.t === 'group') res = n.items; }); });
+    return res;
+  }
+  function locate(id) {
+    var res = null;
+    allFiles().forEach(function (f) { walk(f.items, function (n, arr) { if (n.id === id) res = { node: n, arr: arr, file: f }; }); });
+    return res;
+  }
+  function containsId(node, id) { var hit = false; if (node.id === id) return true; if (node.t === 'group') walk(node.items, function (n) { if (n.id === id) hit = true; }); return hit; }
+  function entryByKey(key) { return state.A ? state.A.menu.entries.find(function (e) { return e.key === key; }) : null; }
+  function slug(s) { return String(s).replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '') || 'menu'; }
+  function fnName(src) { var m = /^(?:runOrHome\(\s*)?([A-Za-z_][A-Za-z0-9_.]*)/.exec(src); return m ? m[1].replace(/\./g, '_') : 'menu'; }
+  function activeFile() { var f = allFiles().find(function (x) { return x.id === state.active; }) || allFiles()[0]; return f || null; }
+  function sourceBase() { return state.src ? state.src.name : 'script.lua'; }
+  function gen(file) { try { return L.generate(state.A, file, { sourceName: sourceBase() }); } catch (e) { return { lua: null, warnings: ['สร้างไฟล์ไม่สำเร็จ: ' + e.message], stats: null }; } }
+
+  /* ---------- loading ---------- */
+  function setSource(name, text, isDemo) {
+    var A;
+    try { A = L.analyze(text); } catch (e) {
+      var el = $('#srcErr'); el.textContent = 'อ่านสคริปต์ไม่ได้: ' + e.message; el.hidden = false; return false;
+    }
+    $('#srcErr').hidden = true;
+    state.src = { name: name, text: text }; state.A = A; state.isDemo = !!isDemo;
+    // reuse the layout saved for this script name, if most of its items still exist in the script
+    var cand = loadStored(name), keep = false;
+    if (cand && validLayout(cand)) {
+      ensureIds(cand);
+      var matched = 0, total = 0;
+      cand.files.forEach(function (f) { walk(f.items, function (n) { if (n.t === 'item') { total++; if (entryByKey(n.key)) matched++; } }); });
+      keep = total > 0 && matched >= Math.ceil(total / 2);
+    }
+    if (keep) state.layout = cand; else { state.layout = L.defaultLayout(A); ensureIds(state.layout); }
+    state.active = allFiles()[0] ? allFiles()[0].id : null;
+    persist(); renderAll(); return true;
+  }
+
+  /* ---------- rendering ---------- */
+  function renderSource() {
+    $('#srcName').textContent = state.src.name; $('#srcTag').hidden = !state.isDemo;
+    var e = state.A.menu.entries;
+    $('#srcMeta').textContent = e.length + ' รายการในเมนูหลัก · ' + state.A.src.split('\n').length.toLocaleString('th-TH') + ' บรรทัด';
+  }
+  function renderPalette() {
+    var used = {};
+    allFiles().forEach(function (f) { var seen = {}; walk(f.items, function (n) { if (n.t === 'item') seen[n.key] = 1; }); Object.keys(seen).forEach(function (k) { used[k] = (used[k] || 0) + 1; }); });
+    var es = state.A.menu.entries;
+    $('#palCount').textContent = es.length + ' รายการ';
+    $('#palette').innerHTML = es.map(function (e, i) {
+      var u = used[e.key] || 0;
+      return '<li class="pal' + (u ? ' used' : '') + '" data-idx="' + i + '">' +
+        '<button class="grip" type="button" data-pal="' + i + '" aria-label="ลากเมนู ' + esc(e.label) + '">⠿</button>' +
+        '<div class="body"><div class="name">' + esc(e.label) + '</div><div class="meta">' + e.closureLines.toLocaleString('th-TH') + ' บรรทัดที่ต้องใช้' + (u ? ' · อยู่ใน ' + u + ' ไฟล์' : '') + '</div></div>' +
+        '<button class="btn small" type="button" data-act="pal-add" data-idx="' + i + '">เพิ่ม</button></li>';
+    }).join('');
+  }
+  function moveOptions(node) {
+    var opts = ['<option value="">⇄</option>'];
+    allFiles().forEach(function (f) {
+      opts.push('<option value="' + esc(f.id) + '">ไฟล์ ' + esc(f.name) + '</option>');
+      walk(f.items, function (n) { if (n.t === 'group' && !containsId(node, n.id)) opts.push('<option value="' + esc(n.id) + '">　กลุ่ม ' + esc(n.label || 'Group') + ' (' + esc(f.name) + ')</option>'); });
+    });
+    return opts.join('');
+  }
+  function renderItem(n) {
+    var acts = '<div class="acts"><button class="icon-btn" type="button" data-act="up" aria-label="เลื่อนขึ้น">↑</button><button class="icon-btn" type="button" data-act="down" aria-label="เลื่อนลง">↓</button>' +
+      '<select data-act="moveto" aria-label="ย้ายไป">' + moveOptions(n) + '</select><button class="icon-btn" type="button" data-act="del" aria-label="ลบออกจากไฟล์">×</button></div>';
+    if (n.t === 'group') {
+      return '<li class="item group" data-id="' + esc(n.id) + '"><div class="row"><button class="grip" type="button" data-grip="1" aria-label="ลากกลุ่ม">⠿</button>' +
+        '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || '') + '" placeholder="ชื่อกลุ่ม" aria-label="ชื่อกลุ่ม"><div class="meta">กลุ่ม · ' + n.items.length + ' รายการ</div></div>' + acts + '</div>' +
+        '<ul class="list" data-list="' + esc(n.id) + '">' + (n.items.length ? n.items.map(renderItem).join('') : '<li class="empty">กลุ่มว่าง</li>') + '</ul></li>';
+    }
+    var e = entryByKey(n.key);
+    return '<li class="item' + (e ? '' : ' missing') + '" data-id="' + esc(n.id) + '"><button class="grip" type="button" data-grip="1" aria-label="ลากเมนู">⠿</button>' +
+      '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || (e ? e.label : '')) + '" aria-label="ชื่อที่แสดง">' +
+      '<div class="meta">' + (e ? esc(n.key) : 'ไม่พบในสคริปต์นี้ (จะถูกข้าม)') + '</div></div>' + acts + '</li>';
+  }
+  function renderBoard() {
+    var files = allFiles();
+    var html = files.map(function (f) {
+      var g = gen(f);
+      var st = g.stats ? '<span class="ok">พร้อม</span> · ' + g.stats.lines.toLocaleString('th-TH') + ' บรรทัด · ' + Math.round(g.stats.bytes / 1024) + ' KB' + (g.stats.direct ? ' · เปิดตรง' : '') : 'ยังไม่มีเมนู';
+      var warn = g.warnings.length ? '<div class="warn">' + esc(g.warnings.join(' / ')) + '</div>' : '';
+      return '<section class="file' + (f.id === state.active ? ' active' : '') + '" data-file="' + esc(f.id) + '">' +
+        '<div class="file-head"><input class="field fname" data-act="fname" value="' + esc(f.name) + '" aria-label="ชื่อไฟล์"><span class="ext">.lua</span><button class="icon-btn" type="button" data-act="file-del" aria-label="ลบไฟล์">×</button></div>' +
+        '<div class="opts"><label>ชื่อหัวเมนู<input class="field" data-act="ftitle" value="' + esc(f.title) + '" placeholder="ว่าง = ใช้หัวเมนูเดิมของสคริปต์"></label>' +
+        '<label class="chk"><input type="checkbox" data-act="fdirect"' + (f.direct ? ' checked' : '') + '>เปิดตรงเมื่อมีรายการเดียว</label></div>' +
+        '<ul class="list" data-list="' + esc(f.id) + '">' + (f.items.length ? f.items.map(renderItem).join('') : '<li class="empty">ลากเมนูมาวางที่นี่ หรือกด “เพิ่ม” ที่รายการด้านซ้าย</li>') + '</ul>' +
+        '<div class="file-actions"><button class="btn small" type="button" data-act="add-group">+ กลุ่ม</button>' +
+        (state.dl ? '<button class="btn small primary" type="button" data-act="save"' + (g.lua ? '' : ' disabled') + '>บันทึก ' + (state.app ? '.lua' : '.txt') + '</button>' : '') +
+        '<button class="btn small" type="button" data-act="copy"' + (g.lua ? '' : ' disabled') + '>คัดลอก</button></div>' +
+        '<div class="status">' + st + '</div>' + warn +
+        '<details data-act="preview"><summary>ดูโค้ดเมนูที่สร้างขึ้น</summary><pre></pre></details></section>';
+    }).join('');
+    $('#board').innerHTML = html || '<div class="empty-board">ยังไม่มีไฟล์ กด “+ ไฟล์ใหม่” หรือ “รวมเป็นไฟล์เดียว”</div>';
+    $('#tbZip').hidden = !(state.dl && files.length);
+    $('#tbLayoutSave').hidden = !state.dl;
+  }
+  function renderAll() { renderSource(); renderPalette(); renderBoard(); }
+
+  /* ---------- actions ---------- */
+  function newFile(name, items) { var f = { id: L.newId('f'), name: name, title: '', direct: true, items: items || [] }; state.layout.files.push(f); return f; }
+  function uniqueName(base) { var n = base, i = 2; var names = allFiles().map(function (f) { return f.name; }); while (names.indexOf(n) >= 0) n = base + '_' + (i++); return n; }
+  function addEntryTo(fileId, idx) {
+    var e = state.A.menu.entries[idx]; var arr = listById(fileId); if (!arr) return;
+    arr.push({ t: 'item', id: L.newId('i'), key: e.key });
+  }
+  function commit() { persist(); renderAll(); }
+
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-act]'); var sec = ev.target.closest('.file');
+    if (sec && !drag) { if (state.active !== sec.dataset.file) { state.active = sec.dataset.file; document.querySelectorAll('.file').forEach(function (x) { x.classList.toggle('active', x === sec); }); } }
+    if (!b || b.tagName === 'INPUT' || b.tagName === 'SELECT' || b.tagName === 'DETAILS') return;
+    var act = b.dataset.act, li = b.closest('.item'), id = li && li.dataset.id;
+    if (act === 'pal-add') { var f = activeFile() || newFile(uniqueName('Main')); state.active = f.id; addEntryTo(f.id, +b.dataset.idx); commit(); toast('เพิ่มใน ' + f.name); }
+    else if (act === 'up' || act === 'down') { var loc = locate(id); var i = loc.arr.indexOf(loc.node); var j = act === 'up' ? i - 1 : i + 1; if (j >= 0 && j < loc.arr.length) { loc.arr.splice(j, 0, loc.arr.splice(i, 1)[0]); commit(); } }
+    else if (act === 'del') { var l2 = locate(id); l2.arr.splice(l2.arr.indexOf(l2.node), 1); commit(); }
+    else if (act === 'add-group') { var fl = allFiles().find(function (x) { return x.id === sec.dataset.file; }); fl.items.push({ t: 'group', id: L.newId('g'), label: '📁 Group', items: [] }); commit(); }
+    else if (act === 'file-del') { var fi = allFiles().findIndex(function (x) { return x.id === sec.dataset.file; }); allFiles().splice(fi, 1); if (state.active === sec.dataset.file) state.active = allFiles()[0] ? allFiles()[0].id : null; commit(); }
+    else if (act === 'copy') { copyText(gen(allFiles().find(function (x) { return x.id === sec.dataset.file; })).lua); }
+    else if (act === 'save') { var ff = allFiles().find(function (x) { return x.id === sec.dataset.file; }); saveFile(slug(ff.name) + (state.app ? '.lua' : '.lua.txt'), gen(ff).lua); }
+  });
+
+  document.addEventListener('change', function (ev) {
+    var el = ev.target; var act = el.dataset && el.dataset.act; if (!act) return;
+    var sec = el.closest('.file'); var file = sec && allFiles().find(function (x) { return x.id === sec.dataset.file; });
+    if (act === 'fname') { file.name = slug(el.value) || 'menu'; commit(); }
+    else if (act === 'ftitle') { file.title = el.value; commit(); }
+    else if (act === 'fdirect') { file.direct = el.checked; commit(); }
+    else if (act === 'label') { var loc = locate(el.closest('.item').dataset.id); var def = loc.node.t === 'item' && entryByKey(loc.node.key) ? entryByKey(loc.node.key).label : ''; loc.node.label = (el.value === def) ? '' : el.value; commit(); }
+    else if (act === 'moveto' && el.value) {
+      var li = el.closest('.item'); var l = locate(li.dataset.id); var target = listById(el.value);
+      if (target && !(l.node.t === 'group' && containsId(l.node, el.value))) { l.arr.splice(l.arr.indexOf(l.node), 1); target.push(l.node); commit(); }
+    }
+  });
+  document.addEventListener('toggle', function (ev) {
+    var d = ev.target; if (!(d.matches && d.matches('details[data-act="preview"]')) || !d.open) return;
+    var f = allFiles().find(function (x) { return x.id === d.closest('.file').dataset.file; }); var g = gen(f);
+    var pre = d.querySelector('pre'); if (!g.lua) { pre.textContent = '(ว่าง)'; return; }
+    var i = g.lua.indexOf('-- Menu groups (generated)'); if (i < 0) i = g.lua.indexOf('-- MAIN MENU (generated)');
+    var s = g.lua.lastIndexOf('-- ====', i); pre.textContent = g.lua.slice(s >= 0 ? s : i);
+  }, true);
+
+  $('#tbNew').onclick = function () { var f = newFile(uniqueName('Script')); state.active = f.id; commit(); };
+  $('#tbSplit').onclick = function () {
+    state.layout.files = []; var seen = {};
+    state.A.menu.entries.forEach(function (e) { if (e.actionSrc === 'os.exit()') return; var n = fnName(e.actionSrc); seen[n] = (seen[n] || 0) + 1; newFile(seen[n] > 1 ? n + '_' + seen[n] : n, [{ t: 'item', id: L.newId('i'), key: e.key }]); });
+    state.active = allFiles()[0] ? allFiles()[0].id : null; commit();
+  };
+  $('#tbMerge').onclick = function () { state.layout = L.defaultLayout(state.A); ensureIds(state.layout); state.active = allFiles()[0].id; commit(); };
+  $('#tbZip').onclick = function () {
+    var files = [], used = {};
+    allFiles().forEach(function (f) { var g = gen(f); if (!g.lua) return; var n = slug(f.name), k = n, i = 2; while (used[k]) k = n + '_' + (i++); used[k] = 1; files.push({ name: k + '.lua', data: new TextEncoder().encode(g.lua) }); });
+    if (!files.length) { toast('ยังไม่มีไฟล์ที่มีเมนู'); return; }
+    if (state.app) {
+      var paths = [], chain = Promise.resolve();
+      files.forEach(function (f) { chain = chain.then(function () { return state.dl.save({ filename: f.name, data: f.data }).then(function (r) { paths.push(r.path); }); }); });
+      chain.then(function () { toast('บันทึก ' + paths.length + ' ไฟล์ใน ' + (paths[0] ? paths[0].replace(/[^\/]*$/, '') : 'Download')); }, function (err) { toast('บันทึกไม่สำเร็จ' + (err && err.message ? ' (' + err.message + ')' : '')); });
+      return;
+    }
+    save('SCBI_menus.zip', L.makeZip(files));
+  };
+  $('#tbLayoutSave').onclick = function () { save('menu-layout.json', JSON.stringify(state.layout, null, 2)); };
+  $('#tbLayoutLoad').onclick = function () { $('#layoutFile').click(); };
+  $('#layoutFile').onchange = function (e) {
+    var f = e.target.files[0]; if (!f) return; var r = new FileReader();
+    r.onload = function () { try { var l = JSON.parse(r.result); if (!validLayout(l)) throw new Error('รูปแบบไม่ถูกต้อง'); ensureIds(l); state.layout = l; state.active = l.files[0] ? l.files[0].id : null; commit(); toast('โหลดเลย์เอาต์แล้ว'); } catch (err) { toast('โหลดเลย์เอาต์ไม่ได้: ' + err.message); } };
+    r.readAsText(f); e.target.value = '';
+  };
+  $('#srcPick').onclick = function () { $('#srcFile').click(); };
+  $('#srcFile').onchange = function (e) {
+    var f = e.target.files[0]; if (!f) return; var r = new FileReader();
+    r.onload = function () {
+      var text = String(r.result);
+      if (setSource(f.name, text, false)) {
+        toast('โหลด ' + f.name + ' แล้ว');
+        try { localStorage.setItem(SRC_KEY, JSON.stringify({ name: f.name, text: text })); } catch (e) { /* too large or blocked: reload the file next time */ }
+      }
+    };
+    r.readAsText(f, 'utf-8'); e.target.value = '';
+  };
+  $('#srcDemo').onclick = function () { setSource(DEMO_NAME, DEMO_LUA, true); try { localStorage.removeItem(SRC_KEY); } catch (e) { /* ignore */ } };
+
+  /* ---------- export ---------- */
+  function copyText(text) {
+    if (!text) return;
+    var fallback = function () { var ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0'; document.body.appendChild(ta); ta.select(); var ok = false; try { ok = document.execCommand('copy'); } catch (e) { /* ignore */ } ta.remove(); toast(ok ? 'คัดลอกแล้ว' : 'คัดลอกไม่ได้ ลองบันทึกเป็นไฟล์แทน'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('คัดลอกแล้ว'); }, fallback); else fallback();
+  }
+  function save(filename, data) {
+    if (!state.dl) { toast('เบราว์เซอร์นี้บันทึกไฟล์ไม่ได้ ใช้ปุ่มคัดลอกแทน'); return; }
+    state.dl.save({ filename: filename, data: data }).then(function (res) { toast('บันทึกแล้ว ' + (res && res.path ? res.path : filename)); }, function (err) {
+      if (err && err.code === 'declined') return;
+      var why = err && (err.message || err.code);
+      toast('บันทึกไม่สำเร็จ' + (why ? ' (' + why + ')' : ''));
+    });
+  }
+  function saveFile(name, lua) { if (lua) save(name, lua); }
+
+  /* ---------- drag (pointer events: works with touch and mouse) ---------- */
+  function listAt(x, y) {
+    var el = document.elementFromPoint(x, y); if (!el) return null;
+    var list = el.closest('.list'); if (list) return list;
+    var sec = el.closest('.file'); return sec ? sec.querySelector(':scope > .list') : null;
+  }
+  function indexIn(list, y, skipEl) {
+    var kids = Array.prototype.filter.call(list.children, function (c) { return c.classList.contains('item') && c !== skipEl; });
+    for (var i = 0; i < kids.length; i++) { var r = kids[i].getBoundingClientRect(); if (y < r.top + r.height / 2) return i; }
+    return kids.length;
+  }
+  function clearIndicators() { document.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); }); document.querySelectorAll('.list.over').forEach(function (x) { x.classList.remove('over'); }); }
+  function endDrag() { if (!drag) return; drag.ghost.remove(); if (drag.srcEl) drag.srcEl.classList.remove('dragging'); clearIndicators(); document.body.style.userSelect = ''; cancelAnimationFrame(drag.raf); drag = null; }
+
+  document.addEventListener('pointerdown', function (ev) {
+    var grip = ev.target.closest('.grip'); if (!grip || ev.button > 0) return;
+    ev.preventDefault();
+    var pal = grip.closest('.pal'), li = grip.closest('.item'); var srcEl = pal || li; if (!srcEl) return;
+    var r = srcEl.getBoundingClientRect(); var ghost = srcEl.cloneNode(true);
+    ghost.classList.add('ghost'); ghost.style.width = r.width + 'px'; ghost.style.left = r.left + 'px'; ghost.style.top = r.top + 'px'; ghost.querySelectorAll('.list').forEach(function (x) { x.remove(); });
+    document.body.appendChild(ghost); document.body.style.userSelect = 'none';
+    drag = { kind: pal ? 'new' : 'move', idx: pal ? +pal.dataset.idx : null, id: li ? li.dataset.id : null, srcEl: li || null, ghost: ghost, dx: ev.clientX - r.left, dy: ev.clientY - r.top, x: ev.clientX, y: ev.clientY, target: null, at: 0, raf: 0 };
+    if (li) li.classList.add('dragging');
+    try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+    var tick = function () { if (!drag) return; if (drag.y < 70) window.scrollBy(0, -14); else if (drag.y > window.innerHeight - 70) window.scrollBy(0, 14); drag.raf = requestAnimationFrame(tick); };
+    drag.raf = requestAnimationFrame(tick);
+  });
+  document.addEventListener('pointermove', function (ev) {
+    if (!drag) return; drag.x = ev.clientX; drag.y = ev.clientY;
+    drag.ghost.style.left = (ev.clientX - drag.dx) + 'px'; drag.ghost.style.top = (ev.clientY - drag.dy) + 'px';
+    clearIndicators();
+    var list = listAt(ev.clientX, ev.clientY); drag.target = null;
+    if (!list) return;
+    if (drag.srcEl && drag.srcEl.contains(list)) return;   // a group cannot go inside itself
+    var at = indexIn(list, ev.clientY, drag.srcEl);
+    var kids = Array.prototype.filter.call(list.children, function (c) { return c.classList.contains('item') && c !== drag.srcEl; });
+    var line = document.createElement('li'); line.className = 'drop-line';
+    var empty = list.querySelector(':scope > .empty'); if (empty) empty.hidden = true;
+    list.insertBefore(line, kids[at] || null); list.classList.add('over');
+    drag.target = list.dataset.list; drag.at = at;
+  });
+  function finishDrag(ev) {
+    if (!drag) return; var d = drag; var target = d.target; var at = d.at; endDrag();
+    document.querySelectorAll('.list > .empty[hidden]').forEach(function (x) { x.hidden = false; });
+    if (!target) return;
+    var dest = listById(target); if (!dest) return;
+    if (d.kind === 'new') { dest.splice(at, 0, { t: 'item', id: L.newId('i'), key: state.A.menu.entries[d.idx].key }); }
+    else {
+      var loc = locate(d.id); if (!loc) return;
+      if (loc.node.t === 'group' && containsId(loc.node, target)) return;
+      var from = loc.arr.indexOf(loc.node); loc.arr.splice(from, 1); dest.splice(at, 0, loc.node);
+    }
+    var sec = document.querySelector('[data-list="' + target + '"]'); sec = sec && sec.closest('.file'); if (sec) state.active = sec.dataset.file;
+    commit();
+  }
+  document.addEventListener('pointerup', finishDrag);
+  document.addEventListener('pointercancel', function () { endDrag(); document.querySelectorAll('.list > .empty[hidden]').forEach(function (x) { x.hidden = false; }); });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && drag) { endDrag(); renderBoard(); } });
+
+  /* ---------- Android app mode: the WebView exposes AndroidBridge.saveFile(name, base64, folder) ---------- */
+  var FOLDER_KEY = 'luamenudesk.folder';
+  function folderValue() { return ($('#folderIn').value || '').trim(); }
+  function appDownloads() {
+    return {
+      save: function (req) {
+        return new Promise(function (resolve, reject) {
+          try {
+            var bytes = typeof req.data === 'string' ? new TextEncoder().encode(req.data) : req.data;
+            var bin = '', CH = 0x8000;
+            for (var i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+            var r = String(window.AndroidBridge.saveFile(req.filename, btoa(bin), folderValue()));
+            if (r.indexOf('OK:') === 0) resolve({ status: 'saved', path: r.slice(3) }); else reject({ code: 'save_failed', message: r.slice(4) });
+          } catch (e) { reject({ code: 'save_failed', message: String(e && e.message || e) }); }
+        });
+      }
+    };
+  }
+  function enterAppMode() {
+    state.app = true; state.dl = appDownloads();
+    $('#folderWrap').hidden = false; $('#noteApp').hidden = false; $('#noteWeb').hidden = true;
+    $('#tbZip').textContent = 'บันทึกทุกไฟล์ (.lua)';
+    try { $('#folderIn').value = localStorage.getItem(FOLDER_KEY) || ''; } catch (e) { /* ignore */ }
+    $('#folderIn').addEventListener('change', function () { try { localStorage.setItem(FOLDER_KEY, folderValue()); } catch (e) { /* ignore */ } });
+    renderBoard();
+  }
+
+  /* ---------- boot ---------- */
+  var last = null;
+  try { last = JSON.parse(localStorage.getItem(SRC_KEY) || 'null'); } catch (e) { last = null; }
+  if (!(last && typeof last.text === 'string' && setSource(String(last.name || 'script.lua'), last.text, false))) setSource(DEMO_NAME, DEMO_LUA, true);
+  if (window.AndroidBridge) enterAppMode();
+  else if (window.claude && window.claude.use) {
+    window.claude.use('downloads').then(function (d) { if (d) { state.dl = d; renderBoard(); } }, function () { /* no downloads here */ });
+  }
+})();
+</script>
