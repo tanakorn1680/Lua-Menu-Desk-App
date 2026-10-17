@@ -150,6 +150,29 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 70;
   background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; max-width: calc(100% - 32px);
 }
+/* group focus view: one group opened full-screen, with a tray of drop targets while dragging */
+.gmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.focus { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.fhead { display: flex; align-items: center; gap: 6px; padding-block: 10px; border-bottom: 1px solid var(--line); }
+.crumbs { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; font-size: 13.5px; color: var(--muted); }
+.crumb { border: 0; background: transparent; color: var(--accent); padding: 4px 6px; border-radius: 6px; min-height: 32px; font-weight: 500; overflow-wrap: anywhere; text-align: left; }
+.crumbs b { color: var(--fg); font-weight: 600; overflow-wrap: anywhere; }
+.fbody { flex: 1 1 auto; min-height: 0; overflow: auto; width: 100%; max-width: 760px; margin-inline: auto; display: flex; flex-direction: column; gap: 10px; padding-block: 12px 110px; }
+.fbody > * { flex: none; }
+.fbody .gname { font-family: var(--font-display); font-weight: 700; font-size: 17px; }
+.ftools { display: flex; flex-wrap: wrap; gap: 8px; }
+.ftools select { flex: 1 1 200px; min-height: 38px; }
+.fbody .list { min-height: 80px; }
+.ftray { position: absolute; left: 0; right: 0; bottom: 0; display: none; background: var(--surface); border-top: 2px solid var(--accent); box-shadow: var(--shadow); max-height: 40vh; overflow: auto;
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.focus.dragging .ftray { display: block; }
+.ft-title { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 40px; padding: 4px 12px; border: 1px dashed var(--muted); background: var(--bg); border-radius: 99px; font-size: 13.5px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.chip.over { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+body.focus-open { overflow: hidden; }
 @media (prefers-reduced-motion: no-preference) { .btn, .icon-btn { transition: border-color .12s, background .12s; } }
 </style>
 
@@ -201,6 +224,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
     <p>ไฟล์ที่เมนูข้างในพึ่งข้อมูลที่เมนูอื่นเตรียมไว้ (เช่นค่าที่ค้นหาเจอแล้ว) จะค้นหาใหม่เองในไฟล์นั้น เพราะแต่ละไฟล์รันแยกกัน</p>
   </section>
 </div>
+<div class="focus" id="focus" hidden></div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
@@ -1124,7 +1148,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
 
   var STORE_KEY = 'luamenudesk.layout.v1:';
   var SRC_KEY = 'luamenudesk.src.v1';
-  var state = { src: null, A: null, layout: { version: 1, files: [] }, active: null, dl: null, isDemo: true };
+  var state = { src: null, A: null, layout: { version: 1, files: [] }, active: null, dl: null, isDemo: true, focus: null };
   var drag = null;
   var toastTimer = 0;
 
@@ -1212,13 +1236,13 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
     });
     return opts.join('');
   }
-  function renderItem(n) {
+  function renderItem(n, compact) {
     var acts = '<div class="acts"><button class="icon-btn" type="button" data-act="up" aria-label="เลื่อนขึ้น">↑</button><button class="icon-btn" type="button" data-act="down" aria-label="เลื่อนลง">↓</button>' +
       '<select data-act="moveto" aria-label="ย้ายไป">' + moveOptions(n) + '</select><button class="icon-btn" type="button" data-act="del" aria-label="ลบออกจากไฟล์">×</button></div>';
     if (n.t === 'group') {
       return '<li class="item group" data-id="' + esc(n.id) + '"><div class="row"><button class="grip" type="button" data-grip="1" aria-label="ลากกลุ่ม">⠿</button>' +
-        '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || '') + '" placeholder="ชื่อกลุ่ม" aria-label="ชื่อกลุ่ม"><div class="meta">กลุ่ม · ' + n.items.length + ' รายการ</div></div>' + acts + '</div>' +
-        '<ul class="list" data-list="' + esc(n.id) + '">' + (n.items.length ? n.items.map(renderItem).join('') : '<li class="empty">กลุ่มว่าง</li>') + '</ul></li>';
+        '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || '') + '" placeholder="ชื่อกลุ่ม" aria-label="ชื่อกลุ่ม"><div class="meta gmeta">กลุ่ม · ' + n.items.length + ' รายการ <button class="btn small" type="button" data-act="open">เปิด ›</button></div></div>' + acts + '</div>' +
+        (compact ? '</li>' : '<ul class="list" data-list="' + esc(n.id) + '">' + (n.items.length ? n.items.map(function (x) { return renderItem(x, false); }).join('') : '<li class="empty">กลุ่มว่าง</li>') + '</ul></li>');
     }
     var e = entryByKey(n.key);
     return '<li class="item' + (e ? '' : ' missing') + '" data-id="' + esc(n.id) + '"><button class="grip" type="button" data-grip="1" aria-label="ลากเมนู">⠿</button>' +
@@ -1235,7 +1259,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
         '<div class="file-head"><input class="field fname" data-act="fname" value="' + esc(f.name) + '" aria-label="ชื่อไฟล์"><span class="ext">.lua</span><button class="icon-btn" type="button" data-act="file-del" aria-label="ลบไฟล์">×</button></div>' +
         '<div class="opts"><label>ชื่อหัวเมนู<input class="field" data-act="ftitle" value="' + esc(f.title) + '" placeholder="ว่าง = ใช้หัวเมนูเดิมของสคริปต์"></label>' +
         '<label class="chk"><input type="checkbox" data-act="fdirect"' + (f.direct ? ' checked' : '') + '>เปิดตรงเมื่อมีรายการเดียว</label></div>' +
-        '<ul class="list" data-list="' + esc(f.id) + '">' + (f.items.length ? f.items.map(renderItem).join('') : '<li class="empty">ลากเมนูมาวางที่นี่ หรือกด “เพิ่ม” ที่รายการด้านซ้าย</li>') + '</ul>' +
+        '<ul class="list" data-list="' + esc(f.id) + '">' + (f.items.length ? f.items.map(function (x) { return renderItem(x, false); }).join('') : '<li class="empty">ลากเมนูมาวางที่นี่ หรือกด “เพิ่ม” ที่รายการด้านซ้าย</li>') + '</ul>' +
         '<div class="file-actions"><button class="btn small" type="button" data-act="add-group">+ กลุ่ม</button>' +
         (state.dl ? '<button class="btn small primary" type="button" data-act="save"' + (g.lua ? '' : ' disabled') + '>บันทึก ' + (state.app ? '.lua' : '.txt') + '</button>' : '') +
         '<button class="btn small" type="button" data-act="copy"' + (g.lua ? '' : ' disabled') + '>คัดลอก</button></div>' +
@@ -1246,7 +1270,47 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
     $('#tbZip').hidden = !(state.dl && files.length);
     $('#tbLayoutSave').hidden = !state.dl;
   }
-  function renderAll() { renderSource(); renderPalette(); renderBoard(); }
+  function renderAll() { renderSource(); renderPalette(); renderBoard(); renderFocus(); }
+
+  /* ---------- group focus view ---------- */
+  function pathTo(id) {
+    var res = null;
+    allFiles().forEach(function (f) {
+      (function rec(items, trail) { items.forEach(function (n) { if (n.t === 'group') { var t = trail.concat([n]); if (n.id === id) res = { file: f, groups: t }; rec(n.items, t); } }); })(f.items, []);
+    });
+    return res;
+  }
+  function focusUp() { var p = state.focus && pathTo(state.focus); state.focus = p && p.groups.length > 1 ? p.groups[p.groups.length - 2].id : null; renderFocus(); }
+  window.__appBack = function () { if (drag || !state.focus) return false; focusUp(); return true; };
+  function renderFocus() {
+    var box = $('#focus'); var old = $('#focusBody'); var keep = old ? old.scrollTop : 0;
+    var p = state.focus ? pathTo(state.focus) : null;
+    if (!p) { state.focus = null; box.hidden = true; box.innerHTML = ''; document.body.classList.remove('focus-open'); return; }
+    var last = p.groups.length - 1, g = p.groups[last];
+    var parent = last > 0 ? p.groups[last - 1] : p.file;
+    var crumbs = '<button class="crumb" type="button" data-act="fclose">📄 ' + esc(p.file.name) + '</button>' + p.groups.map(function (x, i) {
+      return ' › ' + (i === last ? '<b>' + esc(x.label || 'Group') + '</b>' : '<button class="crumb" type="button" data-act="fgo" data-id="' + esc(x.id) + '">' + esc(x.label || 'Group') + '</button>');
+    }).join('');
+    var chips = ['<button class="chip" type="button" data-drop="' + esc(parent.id) + '">⬆ ชั้นบน · ' + esc(last > 0 ? (parent.label || 'Group') : parent.name) + '</button>'];
+    allFiles().forEach(function (f) {
+      if (f.id !== parent.id) chips.push('<button class="chip" type="button" data-drop="' + esc(f.id) + '">📄 ' + esc(f.name) + '</button>');
+      walk(f.items, function (n) { if (n.t === 'group' && n.id !== g.id && n.id !== parent.id) chips.push('<button class="chip" type="button" data-drop="' + esc(n.id) + '">📁 ' + esc(n.label || 'Group') + ' <span class="meta">' + esc(f.name) + '</span></button>'); });
+    });
+    var entries = state.A ? state.A.menu.entries : [];
+    box.innerHTML =
+      '<div class="fhead"><button class="icon-btn" type="button" data-act="fup" aria-label="กลับชั้นบน">←</button><div class="crumbs">' + crumbs + '</div><button class="icon-btn" type="button" data-act="fclose" aria-label="ปิด">×</button></div>' +
+      '<div class="fbody" id="focusBody">' +
+        '<input class="field gname" data-act="flabel" value="' + esc(g.label || '') + '" placeholder="ชื่อกลุ่ม" aria-label="ชื่อกลุ่ม">' +
+        '<div class="ftools"><select class="field" data-act="fadd" aria-label="เพิ่มเมนูจากสคริปต์"><option value="">＋ เพิ่มเมนูจากสคริปต์</option>' +
+          entries.map(function (e, i) { return '<option value="' + i + '">' + esc(e.label) + '</option>'; }).join('') + '</select>' +
+          '<button class="btn small" type="button" data-act="fadd-group">+ กลุ่มย่อย</button></div>' +
+        '<ul class="list" data-list="' + esc(g.id) + '">' + (g.items.length ? g.items.map(function (x) { return renderItem(x, true); }).join('') : '<li class="empty">กลุ่มว่าง เพิ่มเมนูจากด้านบน</li>') + '</ul>' +
+        '<p class="sub">ลาก ⠿ ไปวางที่ปุ่มด้านล่างที่โผล่ขึ้นมา เพื่อย้ายออกไปชั้นบน ไฟล์อื่น หรือกลุ่มอื่น</p>' +
+      '</div>' +
+      '<div class="ftray" id="focusTray"><div class="ft-title">ปล่อยบนปุ่มเพื่อย้ายไปที่นั่น</div><div class="chips">' + chips.join('') + '</div></div>';
+    box.hidden = false; document.body.classList.add('focus-open');
+    $('#focusBody').scrollTop = keep;
+  }
 
   /* ---------- actions ---------- */
   function newFile(name, items) { var f = { id: L.newId('f'), name: name, title: '', direct: true, items: items || [] }; state.layout.files.push(f); return f; }
@@ -1262,6 +1326,11 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
     if (sec && !drag) { if (state.active !== sec.dataset.file) { state.active = sec.dataset.file; document.querySelectorAll('.file').forEach(function (x) { x.classList.toggle('active', x === sec); }); } }
     if (!b || b.tagName === 'INPUT' || b.tagName === 'SELECT' || b.tagName === 'DETAILS') return;
     var act = b.dataset.act, li = b.closest('.item'), id = li && li.dataset.id;
+    if (act === 'open') { state.focus = id; renderFocus(); return; }
+    if (act === 'fclose') { state.focus = null; renderFocus(); return; }
+    if (act === 'fup') { focusUp(); return; }
+    if (act === 'fgo') { state.focus = b.dataset.id; renderFocus(); return; }
+    if (act === 'fadd-group') { var gl = listById(state.focus); if (gl) { gl.push({ t: 'group', id: L.newId('g'), label: '📁 Group', items: [] }); commit(); } return; }
     if (act === 'pal-add') { var f = activeFile() || newFile(uniqueName('Main')); state.active = f.id; addEntryTo(f.id, +b.dataset.idx); commit(); toast('เพิ่มใน ' + f.name); }
     else if (act === 'up' || act === 'down') { var loc = locate(id); var i = loc.arr.indexOf(loc.node); var j = act === 'up' ? i - 1 : i + 1; if (j >= 0 && j < loc.arr.length) { loc.arr.splice(j, 0, loc.arr.splice(i, 1)[0]); commit(); } }
     else if (act === 'del') { var l2 = locate(id); l2.arr.splice(l2.arr.indexOf(l2.node), 1); commit(); }
@@ -1274,6 +1343,8 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
   document.addEventListener('change', function (ev) {
     var el = ev.target; var act = el.dataset && el.dataset.act; if (!act) return;
     var sec = el.closest('.file'); var file = sec && allFiles().find(function (x) { return x.id === sec.dataset.file; });
+    if (act === 'flabel') { var fp = pathTo(state.focus); if (fp) { fp.groups[fp.groups.length - 1].label = el.value; commit(); } return; }
+    if (act === 'fadd') { var fe = state.A.menu.entries[+el.value]; var fl2 = listById(state.focus); if (fe && fl2) { fl2.push({ t: 'item', id: L.newId('i'), key: fe.key }); commit(); } return; }
     if (act === 'fname') { file.name = slug(el.value) || 'menu'; commit(); }
     else if (act === 'ftitle') { file.title = el.value; commit(); }
     else if (act === 'fdirect') { file.direct = el.checked; commit(); }
@@ -1358,8 +1429,8 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
     for (var i = 0; i < kids.length; i++) { var r = kids[i].getBoundingClientRect(); if (y < r.top + r.height / 2) return i; }
     return kids.length;
   }
-  function clearIndicators() { document.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); }); document.querySelectorAll('.list.over').forEach(function (x) { x.classList.remove('over'); }); }
-  function endDrag() { if (!drag) return; drag.ghost.remove(); if (drag.srcEl) drag.srcEl.classList.remove('dragging'); clearIndicators(); document.body.style.userSelect = ''; cancelAnimationFrame(drag.raf); drag = null; }
+  function clearIndicators() { document.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); }); document.querySelectorAll('.list.over, .chip.over').forEach(function (x) { x.classList.remove('over'); }); }
+  function endDrag() { if (!drag) return; drag.ghost.remove(); if (drag.srcEl) drag.srcEl.classList.remove('dragging'); clearIndicators(); document.body.style.userSelect = ''; cancelAnimationFrame(drag.raf); var fb = $('#focus'); if (fb) fb.classList.remove('dragging'); drag = null; }
 
   document.addEventListener('pointerdown', function (ev) {
     var grip = ev.target.closest('.grip'); if (!grip || ev.button > 0) return;
@@ -1371,14 +1442,24 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
     drag = { kind: pal ? 'new' : 'move', idx: pal ? +pal.dataset.idx : null, id: li ? li.dataset.id : null, srcEl: li || null, ghost: ghost, dx: ev.clientX - r.left, dy: ev.clientY - r.top, x: ev.clientX, y: ev.clientY, target: null, at: 0, raf: 0 };
     if (li) li.classList.add('dragging');
     try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
-    var tick = function () { if (!drag) return; if (drag.y < 70) window.scrollBy(0, -14); else if (drag.y > window.innerHeight - 70) window.scrollBy(0, 14); drag.raf = requestAnimationFrame(tick); };
+    if (state.focus) $('#focus').classList.add('dragging');
+    var tick = function () {
+      if (!drag) return;
+      var sc = state.focus ? $('#focusBody') : null;
+      if (sc) { var br = sc.getBoundingClientRect(), tr = $('#focusTray').getBoundingClientRect(); if (drag.y < br.top + 60) sc.scrollTop -= 14; else if (drag.y > tr.top - 60 && drag.y < tr.top) sc.scrollTop += 14; }
+      else if (drag.y < 70) window.scrollBy(0, -14); else if (drag.y > window.innerHeight - 70) window.scrollBy(0, 14);
+      drag.raf = requestAnimationFrame(tick);
+    };
     drag.raf = requestAnimationFrame(tick);
   });
   document.addEventListener('pointermove', function (ev) {
     if (!drag) return; drag.x = ev.clientX; drag.y = ev.clientY;
     drag.ghost.style.left = (ev.clientX - drag.dx) + 'px'; drag.ghost.style.top = (ev.clientY - drag.dy) + 'px';
     clearIndicators();
-    var list = listAt(ev.clientX, ev.clientY); drag.target = null;
+    drag.target = null;
+    var hit = document.elementFromPoint(ev.clientX, ev.clientY); var chip = hit && hit.closest('[data-drop]');
+    if (chip) { chip.classList.add('over'); drag.target = chip.dataset.drop; drag.at = Infinity; return; }
+    var list = listAt(ev.clientX, ev.clientY);
     if (!list) return;
     if (drag.srcEl && drag.srcEl.contains(list)) return;   // a group cannot go inside itself
     var at = indexIn(list, ev.clientY, drag.srcEl);
@@ -1401,10 +1482,11 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
     }
     var sec = document.querySelector('[data-list="' + target + '"]'); sec = sec && sec.closest('.file'); if (sec) state.active = sec.dataset.file;
     commit();
+    if (at === Infinity) toast('ย้ายแล้ว');
   }
   document.addEventListener('pointerup', finishDrag);
   document.addEventListener('pointercancel', function () { endDrag(); document.querySelectorAll('.list > .empty[hidden]').forEach(function (x) { x.hidden = false; }); });
-  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && drag) { endDrag(); renderBoard(); } });
+  document.addEventListener('keydown', function (ev) { if (ev.key !== 'Escape') return; if (drag) { endDrag(); renderAll(); } else if (state.focus) focusUp(); });
 
   /* ---------- Android app mode: the WebView exposes AndroidBridge.saveFile(name, base64, folder) ---------- */
   var FOLDER_KEY = 'luamenudesk.folder';

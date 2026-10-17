@@ -90,6 +90,9 @@ class MainActivity : AppCompatActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+        // Let the page close an opened group first; leave the app only when it has nothing to close
+        webView.evaluateJavascript("(window.__appBack && window.__appBack()) === true") { handled ->
+            if (handled != "true") super.onBackPressed()
+        }
     }
 }
