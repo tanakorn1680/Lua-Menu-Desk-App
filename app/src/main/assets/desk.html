@@ -173,6 +173,23 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
 .chip { min-height: 40px; padding: 4px 12px; border: 1px dashed var(--muted); background: var(--bg); border-radius: 99px; font-size: 13.5px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 .chip.over { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
 body.focus-open { overflow: hidden; }
+#inner { z-index: 55; }
+.isite { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.isite h3 { margin: 0; font-family: var(--font-display); font-size: 15px; overflow-wrap: anywhere; }
+.ihead { display: flex; align-items: flex-start; gap: 8px; }
+.ihead > div { flex: 1 1 auto; min-width: 0; }
+.irows { list-style: none; margin: 0; padding: 6px; background: var(--well); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
+.irow { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px 2px 0; min-width: 0; }
+.irow.hid { opacity: .55; }
+.irow.lockrow { background: transparent; border-style: dashed; padding-left: 8px; }
+.irow .ibody { flex: 1 1 auto; min-width: 0; padding-block: 2px; }
+.irow .lbl { border-color: transparent; background: transparent; padding-inline: 6px; font-weight: 500; }
+.irow .lbl:hover { border-color: var(--line); }
+.irow .tagm { font-size: 12px; color: var(--muted); font-family: var(--font-mono); overflow-wrap: anywhere; padding-inline: 6px; }
+.irow.dragging { opacity: .3; }
+.nb { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 12px; text-align: center; }
+.innerlist details { margin-top: 4px; }
+.innerlist li.bad { font-size: 13px; color: var(--muted); margin: 4px 0; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: no-preference) { .btn, .icon-btn { transition: border-color .12s, background .12s; } }
 </style>
 
@@ -225,6 +242,7 @@ body.focus-open { overflow: hidden; }
   </section>
 </div>
 <div class="focus" id="focus" hidden></div>
+<div class="focus" id="inner" hidden></div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
@@ -688,6 +706,7 @@ body.focus-open { overflow: hidden; }
     });
 
     const A = { src, toks, info, localDefs, globDefs, showIdx, loopIdx, menu, alwaysKeep, resolve };
+    A.sites = findSites(A);
 
     // entries: roots → statement ids
     menu.entries.forEach(e => {
@@ -708,6 +727,7 @@ body.focus-open { overflow: hidden; }
       const cl = closure(A, e.rootStmts);
       e.closureLines = [...cl].reduce((acc, i) => acc + (info[i].lineEnd - info[i].lineStart + 1), 0);
       e.closureStmts = cl.size;
+      e.siteIds = A.sites.filter(s => cl.has(s.stmt)).map(s => s.id);
     });
     return A;
   }
@@ -783,6 +803,269 @@ body.focus-open { overflow: hidden; }
     if (!entries.length) throw new Error('showMenu: ไม่พบรายการเมนู');
     return { entries, titleSrc };
   }
+
+
+  /* ───────────────────────── inner menu sites ─────────────────────────
+   * A "site" is one gg.choice(...) call inside the script (not the main menu). We read, from the text only, which
+   * items it shows. Two modes:
+   *   index – the item list is built in straight-line code, so item N is always item N (checked at run time)
+   *   label – items are conditional / looped, so they are recognised by their text at run time
+   * A site that cannot be read safely gets mode = null and a reason; it is never rewritten. */
+  const OPEN_KW = new Set(['function', 'if', 'do', 'repeat']);
+  function matchClose(toks, i) {
+    let d = 0;
+    for (let k = i; k < toks.length; k++) {
+      const t = toks[k]; if (t.kind !== 'op') continue;
+      if (t.text === '(' || t.text === '{' || t.text === '[') d++;
+      else if (t.text === ')' || t.text === '}' || t.text === ']') { d--; if (d === 0) return k; }
+    }
+    return -1;
+  }
+  function splitAt(toks, a, b, seps) {
+    const out = []; let d = 0, kd = 0, st = a;
+    for (let k = a; k <= b; k++) {
+      const t = toks[k];
+      if (t.kind === 'op') {
+        if (t.text === '(' || t.text === '{' || t.text === '[') d++;
+        else if (t.text === ')' || t.text === '}' || t.text === ']') d--;
+        else if (d === 0 && kd === 0 && seps.indexOf(t.text) >= 0) { if (k > st) out.push([st, k - 1]); st = k + 1; }
+      } else if (t.kind === 'kw') {
+        if (OPEN_KW.has(t.text)) kd++; else if (t.text === 'end' || t.text === 'until') kd--;
+      }
+    }
+    if (st <= b) out.push([st, b]);
+    return out;
+  }
+  function exprEnd(toks, s, limit) {
+    let d = 0, kd = 0;
+    for (let k = s; k <= limit; k++) {
+      const t = toks[k];
+      if (k > s && d === 0 && kd === 0) {
+        const p = toks[k - 1];
+        if (t.line > p.line) {
+          const cont = (p.kind === 'op' && CONT_OPS.has(p.text)) || (p.kind === 'kw' && CONT_KW.has(p.text)) ||
+            (t.kind === 'op' && (t.text === '..' || t.text === '.' || t.text === ':')) || (t.kind === 'kw' && (t.text === 'and' || t.text === 'or'));
+          if (!cont) return k - 1;
+        }
+        if (t.kind === 'op' && t.text === ';') return k - 1;
+      }
+      if (t.kind === 'op') {
+        if (t.text === '(' || t.text === '{' || t.text === '[') d++;
+        else if (t.text === ')' || t.text === '}' || t.text === ']') d--;
+      } else if (t.kind === 'kw') {
+        if (OPEN_KW.has(t.text)) kd++; else if (t.text === 'end' || t.text === 'until') kd--;
+      }
+    }
+    return limit;
+  }
+  function classifyElem(A, x, y) {
+    const toks = A.toks;
+    if (x === y && toks[x].kind === 'string') return { kind: 'lit', text: unquoteLua(toks[x].text) };
+    if (toks[x].kind === 'string' && x < y && toks[x + 1].text === '..') {
+      const pre = unquoteLua(toks[x].text);
+      if (pre !== '') return { kind: 'pat', text: pre };
+    }
+    return { kind: 'dyn', text: A.src.slice(toks[x].start, toks[y].end).replace(/\s+/g, ' ').slice(0, 48) };
+  }
+  function tableElems(A, x, y) {
+    // x = '{' index, y = matching '}' index; null when the constructor has keyed fields
+    const toks = A.toks;
+    const parts = splitAt(toks, x + 1, y - 1, [',', ';']);
+    for (const [p, q] of parts) {
+      if (toks[p].text === '[') return null;
+      if (toks[p].kind === 'name' && p < q && toks[p + 1].text === '=') return null;
+    }
+    return parts.map(([p, q]) => classifyElem(A, p, q));
+  }
+
+  function findSites(A) {
+    const toks = A.toks, info = A.info;
+    const sites = [], ids = new Map();
+    info.forEach((st, si) => {
+      if (si === A.showIdx) return;
+      let ord = 0;
+      for (let i = st.a; i + 3 <= st.b; i++) {
+        if (!(toks[i].kind === 'name' && toks[i].text === 'gg' && toks[i + 1].text === '.' && toks[i + 2].text === 'choice' && toks[i + 3].text === '(')) continue;
+        if (i > 0 && (toks[i - 1].text === '.' || toks[i - 1].text === ':')) continue;
+        const open = i + 3, close = matchClose(toks, open);
+        if (close < 0) continue;
+        ord++;
+        const base = (st.names && st.names[0]) || ('top' + si);
+        let id = base + '#' + ord;
+        if (ids.has(id)) id = base + '@' + si + '#' + ord;
+        ids.set(id, 1);
+        const args = splitAt(toks, open + 1, close - 1, [',']);
+        let title = '';
+        if (args[2]) for (let k = args[2][0]; k <= args[2][1]; k++) if (toks[k].kind === 'string') { title = unquoteLua(toks[k].text).split('\n')[0].trim(); break; }
+        const site = { id, stmt: si, fn: base, ord, line: toks[i].line, callStart: toks[i].start, callEnd: toks[open].end, title: (title.replace(/[\s\[\(:\-—]+$/, '') || base), mode: null, n: 0, entries: [], reason: '' };
+        const fail = r => { site.mode = null; site.entries = []; site.reason = r; return site; };
+        sites.push(site);
+        if (!args[0]) { fail('ไม่มีรายการ'); continue; }
+        const [fa, fb] = args[0];
+        let initial = null, emitters = [], nestedAny = false, computed = false;
+
+        if (toks[fa].text === '{' && matchClose(toks, fa) === fb) {
+          initial = tableElems(A, fa, fb);
+          if (!initial) { fail('ตารางมีคีย์เฉพาะ'); continue; }
+        } else if (fa === fb && toks[fa].kind === 'name') {
+          const V = toks[fa].text;
+          let d = -1;
+          for (let k = i - 1; k >= st.a; k--) {
+            if (toks[k].kind === 'name' && toks[k].text === V && toks[k + 1] && toks[k + 1].text === '=' && !(k > 0 && (toks[k - 1].text === '.' || toks[k - 1].text === ':'))) { d = k; break; }
+          }
+          if (d < 0) { fail('รายการถูกสร้างนอกฟังก์ชันนี้ (ข้อมูลไดนามิก)'); continue; }
+          if (toks[d + 2].text !== '{') { fail('รายการไม่ได้เริ่มจากตารางตรง ๆ'); continue; }
+          const tEnd = matchClose(toks, d + 2);
+          initial = tableElems(A, d + 2, tEnd);
+          if (!initial) { fail('ตารางมีคีย์เฉพาะ'); continue; }
+          // walk forward to the call, collecting appends
+          const stack = []; let uid2 = 0, expectDo = 0, bad = '';
+          const ctxOf = () => stack.map(x => x.id);
+          for (let q = tEnd + 1; q < i && !bad; q++) {
+            const t = toks[q];
+            if (t.kind === 'kw') {
+              if (t.text === 'for' || t.text === 'while') { stack.push({ id: ++uid2, loop: true }); expectDo++; }
+              else if (t.text === 'do') { if (expectDo > 0) expectDo--; else stack.push({ id: ++uid2, loop: false }); }
+              else if (t.text === 'if' || t.text === 'function') stack.push({ id: ++uid2, loop: false });
+              else if (t.text === 'repeat') stack.push({ id: ++uid2, loop: true });
+              else if (t.text === 'end' || t.text === 'until') { if (!stack.length) bad = 'ตัวแปรรายการอยู่คนละบล็อกกับ gg.choice'; else stack.pop(); }
+              continue;
+            }
+            if (t.kind !== 'name') continue;
+            if (t.text === V && !(q > 0 && (toks[q - 1].text === '.' || toks[q - 1].text === ':')) && toks[q + 1] && toks[q + 1].text === '[') {
+              const cl = matchClose(toks, q + 1);
+              if (cl > 0 && toks[cl + 1] && toks[cl + 1].text === '=' && !(toks[cl + 2] && toks[cl + 2].text === '=')) {
+                const eEnd = exprEnd(toks, cl + 2, i - 1);
+                const el = classifyElem(A, cl + 2, eEnd);
+                const idx = toks.slice(q + 2, cl);
+                const append = idx.length >= 4 && idx[0].text === '#' && idx[1].text === V && idx[2].text === '+' && idx[3].text === '1' && idx.length === 4;
+                const num = idx.length === 1 && idx[0].kind === 'number' ? parseInt(idx[0].text, 10) : null;
+                const em = { kind: el.kind, text: el.text, ctx: ctxOf(), loop: stack.some(x => x.loop) };
+                if (append) { /* plain append */ }
+                else if (num !== null && !stack.length && num === emitters.length + initial.length + 1) { /* numbered append */ }
+                else { em.computed = true; computed = true; }
+                emitters.push(em); q = eEnd;
+              }
+            } else if (t.text === 'table' && toks[q + 1] && toks[q + 1].text === '.' && toks[q + 3] && toks[q + 3].text === '(') {
+              const fn = toks[q + 2].text, cl = matchClose(toks, q + 3);
+              const as = cl > 0 ? splitAt(toks, q + 4, cl - 1, [',']) : [];
+              if (as[0] && as[0][0] === as[0][1] && toks[as[0][0]].text === V) {
+                if (fn === 'insert') {
+                  if (as.length === 2) { const el = classifyElem(A, as[1][0], as[1][1]); emitters.push({ kind: el.kind, text: el.text, ctx: ctxOf(), loop: stack.some(x => x.loop) }); }
+                  else bad = 'แทรกรายการที่ตำแหน่งกำหนดเอง';
+                } else if (fn === 'remove' || fn === 'sort' || fn === 'move') bad = 'รายการถูกแก้ด้วย table.' + fn;
+                q = cl;
+              }
+            }
+          }
+          if (bad) { fail(bad); continue; }
+          const callCtx = new Set(stack.map(x => x.id));
+          if (emitters.some(e => e.ctx.some(c => callCtx.has(c)))) { fail('รายการถูกเพิ่มซ้ำในลูปเดียวกับ gg.choice'); continue; }
+          nestedAny = emitters.some(e => e.ctx.length > 0);
+        } else { fail('รายการไม่ใช่ตารางหรือตัวแปรธรรมดา'); continue; }
+
+        const all = initial.map(e => ({ kind: e.kind, text: e.text, nested: false })).concat(emitters.map(e => ({ kind: e.kind, text: e.text, nested: e.ctx.length > 0, loop: e.loop, computed: !!e.computed })));
+        if (!nestedAny && !computed) {
+          site.mode = 'index'; site.n = all.length;
+          site.entries = all.map((e, k) => ({ k: (k + 1) + ':' + e.text, pos: k + 1, kind: e.kind, text: e.text, locked: false }));
+        } else {
+          site.mode = 'label';
+          site.entries = all.map((e, k) => ({ k: (k + 1) + ':' + e.text, kind: e.kind, text: e.text, cond: !!e.nested, loop: !!e.loop, locked: e.kind === 'dyn' }));
+          const movable = site.entries.filter(e => !e.locked).length;
+          if (movable === 0) { fail('รายการเป็นข้อความไดนามิกทั้งหมด จึงจับคู่ตอนรันไม่ได้'); continue; }
+          if (movable < 2) { fail('มีรายการที่จัดได้น้อยกว่า 2 รายการ'); continue; }
+        }
+        if (site.entries.length < 2) { fail('มีรายการเดียว'); continue; }
+      }
+    });
+    return sites;
+  }
+
+  /* Merge a stored config ([{k,label?,hide?}, ...] in display order) with a site's current entries. */
+  function siteConfig(site, stored) {
+    const byK = new Map(site.entries.map(e => [e.k, e]));
+    const rows = [], seen = new Set();
+    (stored || []).forEach(r => { const e = byK.get(r.k); if (e && !seen.has(r.k)) { seen.add(r.k); rows.push({ e, k: r.k, label: r.label || '', hide: !!r.hide }); } });
+    site.entries.forEach(e => { if (!seen.has(e.k)) rows.push({ e, k: e.k, label: '', hide: false }); });
+    return rows;
+  }
+  function siteIsDefault(site, stored) {
+    const rows = siteConfig(site, stored);
+    return rows.every((r, i) => r.e === site.entries[i] && !r.hide && (!r.label || r.label === r.e.text));
+  }
+  function luaShimCfg(site, stored) {
+    const rows = siteConfig(site, stored);
+    if (site.mode === 'index') {
+      const o = rows.filter(r => !r.hide).map(r => r.e.pos);
+      const t = rows.filter(r => r.label && r.label !== r.e.text).map(r => '[' + r.e.pos + ']=' + luaStr(r.label));
+      return '[' + luaStr(site.id) + '] = { n = ' + site.n + ', o = {' + o.join(',') + '}' + (t.length ? ', t = {' + t.join(',') + '}' : '') + ' }';
+    }
+    const es = rows.filter(r => !r.e.locked).map(r => {
+      const f = [(r.e.kind === 'pat' ? 'p = ' : 'm = ') + luaStr(r.e.text)];
+      if (r.label && r.label !== r.e.text && r.e.kind === 'lit') f.push('t = ' + luaStr(r.label));
+      if (r.hide) f.push('h = true');
+      return '{ ' + f.join(', ') + ' }';
+    });
+    return '[' + luaStr(site.id) + '] = { e = {\n      ' + es.join(',\n      ') + ' } }';
+  }
+  const SHIM_LUA = [
+    'function __SH.choice(id, items, ...)',
+    '  local c = __SH.cfg[id]',
+    '  if not c or type(items) ~= "table" then return gg.choice(items, ...) end',
+    '  local order, label = {}, {}',
+    '  local n = #items',
+    '  if c.n then',
+    '    if n ~= c.n then return gg.choice(items, ...) end',
+    '    for _, o in ipairs(c.o) do order[#order + 1] = o end',
+    '    for o, t in pairs(c.t or {}) do label[o] = t end',
+    '  else',
+    '    local owner, used = {}, {}',
+    '    for i = 1, n do',
+    '      local s = items[i]',
+    '      if type(s) == "string" then',
+    '        for k, e in ipairs(c.e) do',
+    '          if e.m == s and not used[k] then owner[i] = k; used[k] = true; break end',
+    '        end',
+    '      end',
+    '    end',
+    '    for i = 1, n do',
+    '      local s = items[i]',
+    '      if not owner[i] and type(s) == "string" then',
+    '        for k, e in ipairs(c.e) do',
+    '          if e.p and s:sub(1, #e.p) == e.p then owner[i] = k; break end',
+    '        end',
+    '      end',
+    '    end',
+    '    local last, anchor = 0, {}',
+    '    for i = 1, n do',
+    '      if owner[i] then last = owner[i]; anchor[i] = owner[i] else anchor[i] = last end',
+    '    end',
+    '    for i = 1, n do if not owner[i] and anchor[i] == 0 then order[#order + 1] = i end end',
+    '    for k, e in ipairs(c.e) do',
+    '      for i = 1, n do',
+    '        if anchor[i] == k then',
+    '          if owner[i] then',
+    '            if not e.h then order[#order + 1] = i; if e.t then label[i] = e.t end end',
+    '          else',
+    '            order[#order + 1] = i',
+    '          end',
+    '        end',
+    '      end',
+    '    end',
+    '  end',
+    '  if #order == 0 then return gg.choice(items, ...) end',
+    '  local shown, map = {}, {}',
+    '  for _, i in ipairs(order) do shown[#shown + 1] = label[i] or items[i]; map[#shown] = i end',
+    '  local args = { ... }',
+    '  local cnt = select("#", ...)',
+    '  if type(args[1]) == "number" then',
+    '    for d, i in ipairs(map) do if i == args[1] then args[1] = d; break end end',
+    '  end',
+    '  local r = gg.choice(shown, (table.unpack or unpack)(args, 1, cnt))',
+    '  if r == nil then return nil end',
+    '  return map[r]',
+    'end',
+  ].join('\n');
 
   function closure(A, roots) {
     const seen = new Set();
@@ -932,9 +1215,19 @@ body.focus-open { overflow: hidden; }
 
     const segs = [];
     const info = A.info, src = A.src;
+    const inner = opts.inner || {};
+    const shimSites = (A.sites || []).filter(s => s.mode && inner[s.id] && !siteIsDefault(s, inner[s.id]));
+    const shimById = new Map(shimSites.filter(s => cl.has(s.stmt)).map(s => [s.stmt, []]));
+    shimSites.forEach(s => { if (shimById.has(s.stmt)) shimById.get(s.stmt).push(s); });
+    const usedShim = [];
     ids.forEach(i => {
       const prevEnd = i === 0 ? 0 : info[i - 1].charEnd;
-      segs.push(src.slice(prevEnd, info[i].charEnd).replace(/^\s*\n/, ''));
+      let text = src.slice(prevEnd, info[i].charEnd);
+      if (shimById.has(i)) {
+        const list = shimById.get(i).slice().sort((x, y) => y.callStart - x.callStart);   // edit from the end so offsets stay valid
+        list.forEach(s => { text = text.slice(0, s.callStart - prevEnd) + '__SH.choice(' + luaStr(s.id) + ', ' + text.slice(s.callEnd - prevEnd); usedShim.push(s); });
+      }
+      segs.push(text.replace(/^\s*\n/, ''));
     });
     const loopSeg = src.slice(info[A.loopIdx - 1].charEnd, info[A.loopIdx].charEnd).replace(/^\s*\n/, '');
 
@@ -942,6 +1235,15 @@ body.focus-open { overflow: hidden; }
     out.push(GEN_HEADER);
     out.push('-- Script: ' + (file.name || 'menu') + '   Source: ' + (opts.sourceName || 'script.lua'));
     out.push('');
+    if (usedShim.length) {
+      out.push('-- Inner menu layout (generated): only the order / names shown by these gg.choice calls change.');
+      out.push('-- Each call returns the ORIGINAL item number, so the script logic below is untouched.');
+      out.push('local __SH = { cfg = {');
+      out.push('    ' + usedShim.slice().sort((x, y) => x.stmt - y.stmt || x.ord - y.ord).map(s => luaShimCfg(s, inner[s.id])).join(',\n    '));
+      out.push('  } }');
+      out.push(SHIM_LUA);
+      out.push('');
+    }
     segs.forEach(s => out.push(s.replace(/\s+$/, '')));
     out.push('');
     if (groupFns.length) {
@@ -962,7 +1264,7 @@ body.focus-open { overflow: hidden; }
     out.push('');
     const lua = out.join('\n');
     const lines = lua.split('\n').length;
-    return { lua, warnings, stats: { statements: ids.length, lines, bytes: new TextEncoder().encode(lua).length, direct } };
+    return { lua, warnings, stats: { statements: ids.length, lines, bytes: new TextEncoder().encode(lua).length, direct, innerSites: usedShim.length } };
   }
 
   /* ───────────────────────── layout helpers ───────────────────────── */
@@ -1018,7 +1320,7 @@ body.focus-open { overflow: hidden; }
     return outb;
   }
 
-  const api = { tokenize, splitTopLevel, freeNames, analyze, closure, generate, defaultLayout, makeZip, crc32, luaStr, unquoteLua, newId, collectLeaves };
+  const api = { tokenize, splitTopLevel, freeNames, analyze, closure, generate, defaultLayout, makeZip, crc32, luaStr, unquoteLua, newId, collectLeaves, siteConfig, siteIsDefault };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LuaCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -1148,7 +1450,7 @@ body.focus-open { overflow: hidden; }
 
   var STORE_KEY = 'luamenudesk.layout.v1:';
   var SRC_KEY = 'luamenudesk.src.v1';
-  var state = { src: null, A: null, layout: { version: 1, files: [] }, active: null, dl: null, isDemo: true, focus: null };
+  var state = { src: null, A: null, layout: { version: 1, files: [] }, active: null, dl: null, isDemo: true, focus: null, innerKey: null };
   var drag = null;
   var toastTimer = 0;
 
@@ -1186,7 +1488,7 @@ body.focus-open { overflow: hidden; }
   function fnName(src) { var m = /^(?:runOrHome\(\s*)?([A-Za-z_][A-Za-z0-9_.]*)/.exec(src); return m ? m[1].replace(/\./g, '_') : 'menu'; }
   function activeFile() { var f = allFiles().find(function (x) { return x.id === state.active; }) || allFiles()[0]; return f || null; }
   function sourceBase() { return state.src ? state.src.name : 'script.lua'; }
-  function gen(file) { try { return L.generate(state.A, file, { sourceName: sourceBase() }); } catch (e) { return { lua: null, warnings: ['สร้างไฟล์ไม่สำเร็จ: ' + e.message], stats: null }; } }
+  function gen(file) { try { return L.generate(state.A, file, { sourceName: sourceBase(), inner: state.layout.inner || {} }); } catch (e) { return { lua: null, warnings: ['สร้างไฟล์ไม่สำเร็จ: ' + e.message], stats: null }; } }
 
   /* ---------- loading ---------- */
   function setSource(name, text, isDemo) {
@@ -1247,13 +1549,13 @@ body.focus-open { overflow: hidden; }
     var e = entryByKey(n.key);
     return '<li class="item' + (e ? '' : ' missing') + '" data-id="' + esc(n.id) + '"><button class="grip" type="button" data-grip="1" aria-label="ลากเมนู">⠿</button>' +
       '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || (e ? e.label : '')) + '" aria-label="ชื่อที่แสดง">' +
-      '<div class="meta">' + (e ? esc(n.key) : 'ไม่พบในสคริปต์นี้ (จะถูกข้าม)') + '</div></div>' + acts + '</li>';
+      '<div class="meta gmeta">' + (e ? esc(n.key) : 'ไม่พบในสคริปต์นี้ (จะถูกข้าม)') + (e && innerSites(e).length ? ' <button class="btn small" type="button" data-act="inner">จัดเมนูข้างใน<span class="nb">' + innerSites(e).length + '</span></button>' : '') + '</div></div>' + acts + '</li>';
   }
   function renderBoard() {
     var files = allFiles();
     var html = files.map(function (f) {
       var g = gen(f);
-      var st = g.stats ? '<span class="ok">พร้อม</span> · ' + g.stats.lines.toLocaleString('th-TH') + ' บรรทัด · ' + Math.round(g.stats.bytes / 1024) + ' KB' + (g.stats.direct ? ' · เปิดตรง' : '') : 'ยังไม่มีเมนู';
+      var st = g.stats ? '<span class="ok">พร้อม</span> · ' + g.stats.lines.toLocaleString('th-TH') + ' บรรทัด · ' + Math.round(g.stats.bytes / 1024) + ' KB' + (g.stats.direct ? ' · เปิดตรง' : '') + (g.stats.innerSites ? ' · จัดเมนูข้างใน ' + g.stats.innerSites : '') : 'ยังไม่มีเมนู';
       var warn = g.warnings.length ? '<div class="warn">' + esc(g.warnings.join(' / ')) + '</div>' : '';
       return '<section class="file' + (f.id === state.active ? ' active' : '') + '" data-file="' + esc(f.id) + '">' +
         '<div class="file-head"><input class="field fname" data-act="fname" value="' + esc(f.name) + '" aria-label="ชื่อไฟล์"><span class="ext">.lua</span><button class="icon-btn" type="button" data-act="file-del" aria-label="ลบไฟล์">×</button></div>' +
@@ -1270,7 +1572,52 @@ body.focus-open { overflow: hidden; }
     $('#tbZip').hidden = !(state.dl && files.length);
     $('#tbLayoutSave').hidden = !state.dl;
   }
-  function renderAll() { renderSource(); renderPalette(); renderBoard(); renderFocus(); }
+  function renderAll() { renderSource(); renderPalette(); renderBoard(); renderFocus(); renderInner(); }
+
+  /* ---------- inner menu editor: order / hide / rename the options a script menu shows ---------- */
+  function innerSites(e) { return (e.siteIds || []).map(function (id) { return siteById(id); }).filter(function (x) { return x && x.mode; }); }
+  function siteById(id) { return state.A.sites.find(function (x) { return x.id === id; }); }
+  function innerRows(site) { return L.siteConfig(site, (state.layout.inner || {})[site.id]); }
+  function saveRows(site, rows) {
+    var arr = rows.map(function (r) { var o = { k: r.k }; if (r.label && r.label !== r.e.text) o.label = r.label; if (r.hide) o.hide = true; return o; });
+    state.layout.inner = state.layout.inner || {};
+    if (L.siteIsDefault(site, arr)) delete state.layout.inner[site.id]; else state.layout.inner[site.id] = arr;
+  }
+  function renderInner() {
+    var box = $('#inner'); var old = $('#innerBody'); var keep = old ? old.scrollTop : 0;
+    var e = state.innerKey && entryByKey(state.innerKey);
+    if (!e) { state.innerKey = null; box.hidden = true; box.innerHTML = ''; if (!state.focus) document.body.classList.remove('focus-open'); return; }
+    var all = (e.siteIds || []).map(siteById).filter(Boolean), ok = all.filter(function (x) { return x.mode; }), bad = all.filter(function (x) { return !x.mode; });
+    var cards = ok.map(function (site) {
+      var rows = innerRows(site), custom = !L.siteIsDefault(site, (state.layout.inner || {})[site.id]);
+      return '<section class="isite" data-site="' + esc(site.id) + '"><div class="ihead"><div><h3>' + esc(site.title) + '</h3><div class="meta">' + esc(site.fn) + ' · บรรทัด ' + site.line + ' · ' +
+        (site.mode === 'index' ? 'ลำดับคงที่' : 'จับคู่ตามข้อความ (บางรายการขึ้นกับเงื่อนไข)') + '</div></div>' +
+        '<button class="btn small" type="button" data-act="ireset"' + (custom ? '' : ' disabled') + '>คืนค่าเดิม</button></div>' +
+        '<ul class="irows" data-irows="' + esc(site.id) + '">' + rows.map(function (r, i) {
+          var en = r.e;
+          if (en.locked) return '<li class="irow lockrow" data-k="' + esc(r.k) + '"><div class="ibody"><div class="tagm">ไดนามิก · ' + esc(en.text) + ' · อยู่ตามรายการก่อนหน้า</div></div></li>';
+          var editable = en.kind === 'lit';
+          return '<li class="irow' + (r.hide ? ' hid' : '') + '" data-k="' + esc(r.k) + '"><button class="grip" type="button" data-igrip="1" aria-label="ลากเรียง">⠿</button><div class="ibody">' +
+            (editable ? '<input class="field lbl" data-act="ilabel" value="' + esc(r.label || en.text) + '" aria-label="ชื่อที่แสดง">' : '<div class="tagm">' + esc(en.kind === 'pat' ? en.text + ' …(ไดนามิก)' : en.text) + '</div>') +
+            '</div><button class="icon-btn" type="button" data-act="iup" aria-label="เลื่อนขึ้น">↑</button><button class="icon-btn" type="button" data-act="idown" aria-label="เลื่อนลง">↓</button>' +
+            '<button class="icon-btn" type="button" data-act="ihide" aria-label="ซ่อน/แสดง" aria-pressed="' + (r.hide ? 'true' : 'false') + '">' + (r.hide ? '🙈' : '👁') + '</button></li>';
+        }).join('') + '</ul></section>';
+    }).join('');
+    box.innerHTML =
+      '<div class="fhead"><button class="icon-btn" type="button" data-act="iclose" aria-label="กลับ">←</button><div class="crumbs"><b>' + esc(e.label) + '</b> › ตัวเลือกข้างใน</div><button class="icon-btn" type="button" data-act="iclose" aria-label="ปิด">×</button></div>' +
+      '<div class="fbody innerlist" id="innerBody">' +
+        '<p class="sub">ลาก ⠿ หรือกด ↑↓ เพื่อเรียงใหม่ · 👁 ซ่อน · แก้ชื่อที่แสดงได้ การตั้งค่านี้ใช้กับทุกไฟล์ที่มีเมนูนี้ เมื่อเลือกรายการ สคริปต์จะทำงานเหมือนเดิมทุกอย่าง</p>' +
+        (cards || '<p class="sub">เมนูนี้ไม่มีตัวเลือกข้างในที่จัดได้</p>') +
+        (bad.length ? '<details><summary>ไม่รองรับ ' + bad.length + ' เมนู (รายการเปลี่ยนตามข้อมูล)</summary><ul class="list">' + bad.map(function (x) { return '<li class="bad"><b>' + esc(x.title) + '</b> · ' + esc(x.fn) + ' — ' + esc(x.reason) + '</li>'; }).join('') + '</ul></details>' : '') +
+      '</div>';
+    box.hidden = false; document.body.classList.add('focus-open');
+    $('#innerBody').scrollTop = keep;
+  }
+  function innerMove(site, k, to) {
+    var rows = innerRows(site), i = rows.findIndex(function (r) { return r.k === k; }); if (i < 0) return;
+    to = Math.max(0, Math.min(rows.length - 1, to)); if (to === i) return;
+    var r = rows.splice(i, 1)[0]; rows.splice(to, 0, r); saveRows(site, rows); commit();
+  }
 
   /* ---------- group focus view ---------- */
   function pathTo(id) {
@@ -1281,11 +1628,11 @@ body.focus-open { overflow: hidden; }
     return res;
   }
   function focusUp() { var p = state.focus && pathTo(state.focus); state.focus = p && p.groups.length > 1 ? p.groups[p.groups.length - 2].id : null; renderFocus(); }
-  window.__appBack = function () { if (drag || !state.focus) return false; focusUp(); return true; };
+  window.__appBack = function () { if (drag || idrag) return false; if (state.innerKey) { state.innerKey = null; renderInner(); return true; } if (!state.focus) return false; focusUp(); return true; };
   function renderFocus() {
     var box = $('#focus'); var old = $('#focusBody'); var keep = old ? old.scrollTop : 0;
     var p = state.focus ? pathTo(state.focus) : null;
-    if (!p) { state.focus = null; box.hidden = true; box.innerHTML = ''; document.body.classList.remove('focus-open'); return; }
+    if (!p) { state.focus = null; box.hidden = true; box.innerHTML = ''; if (!state.innerKey) document.body.classList.remove('focus-open'); return; }
     var last = p.groups.length - 1, g = p.groups[last];
     var parent = last > 0 ? p.groups[last - 1] : p.file;
     var crumbs = '<button class="crumb" type="button" data-act="fclose">📄 ' + esc(p.file.name) + '</button>' + p.groups.map(function (x, i) {
@@ -1326,6 +1673,18 @@ body.focus-open { overflow: hidden; }
     if (sec && !drag) { if (state.active !== sec.dataset.file) { state.active = sec.dataset.file; document.querySelectorAll('.file').forEach(function (x) { x.classList.toggle('active', x === sec); }); } }
     if (!b || b.tagName === 'INPUT' || b.tagName === 'SELECT' || b.tagName === 'DETAILS') return;
     var act = b.dataset.act, li = b.closest('.item'), id = li && li.dataset.id;
+    if (act === 'inner') { state.innerKey = li && locate(id) ? locate(id).node.key : null; renderInner(); return; }
+    if (act === 'iclose') { state.innerKey = null; renderInner(); return; }
+    var isec = b.closest('.isite'); var isite = isec && siteById(isec.dataset.site), irow = b.closest('.irow'), ik = irow && irow.dataset.k;
+    if (isite && act === 'ireset') { var st2 = state.layout.inner || {}; delete st2[isite.id]; commit(); return; }
+    if (isite && irow && (act === 'iup' || act === 'idown')) {
+      var rr = innerRows(isite), ii = rr.findIndex(function (r) { return r.k === ik; });
+      var step = act === 'iup' ? -1 : 1, jj = ii + step;
+      while (jj >= 0 && jj < rr.length && rr[jj].e.locked) jj += step;     // jump over locked rows
+      if (jj >= 0 && jj < rr.length) innerMove(isite, ik, jj);
+      return;
+    }
+    if (isite && irow && act === 'ihide') { var r3 = innerRows(isite); var row = r3.find(function (r) { return r.k === ik; }); if (row) { row.hide = !row.hide; saveRows(isite, r3); commit(); } return; }
     if (act === 'open') { state.focus = id; renderFocus(); return; }
     if (act === 'fclose') { state.focus = null; renderFocus(); return; }
     if (act === 'fup') { focusUp(); return; }
@@ -1343,6 +1702,7 @@ body.focus-open { overflow: hidden; }
   document.addEventListener('change', function (ev) {
     var el = ev.target; var act = el.dataset && el.dataset.act; if (!act) return;
     var sec = el.closest('.file'); var file = sec && allFiles().find(function (x) { return x.id === sec.dataset.file; });
+    if (act === 'ilabel') { var isc = el.closest('.isite'), sx = isc && siteById(isc.dataset.site), kx = el.closest('.irow').dataset.k; if (sx) { var rx = innerRows(sx); var rw = rx.find(function (r) { return r.k === kx; }); if (rw) { rw.label = el.value.trim() === rw.e.text ? '' : el.value; saveRows(sx, rx); commit(); } } return; }
     if (act === 'flabel') { var fp = pathTo(state.focus); if (fp) { fp.groups[fp.groups.length - 1].label = el.value; commit(); } return; }
     if (act === 'fadd') { var fe = state.A.menu.entries[+el.value]; var fl2 = listById(state.focus); if (fe && fl2) { fl2.push({ t: 'item', id: L.newId('i'), key: fe.key }); commit(); } return; }
     if (act === 'fname') { file.name = slug(el.value) || 'menu'; commit(); }
@@ -1368,7 +1728,7 @@ body.focus-open { overflow: hidden; }
     state.A.menu.entries.forEach(function (e) { if (e.actionSrc === 'os.exit()') return; var n = fnName(e.actionSrc); seen[n] = (seen[n] || 0) + 1; newFile(seen[n] > 1 ? n + '_' + seen[n] : n, [{ t: 'item', id: L.newId('i'), key: e.key }]); });
     state.active = allFiles()[0] ? allFiles()[0].id : null; commit();
   };
-  $('#tbMerge').onclick = function () { state.layout = L.defaultLayout(state.A); ensureIds(state.layout); state.active = allFiles()[0].id; commit(); };
+  $('#tbMerge').onclick = function () { var inn = state.layout.inner; state.layout = L.defaultLayout(state.A); if (inn) state.layout.inner = inn; ensureIds(state.layout); state.active = allFiles()[0].id; commit(); };
   $('#tbZip').onclick = function () {
     var files = [], used = {};
     allFiles().forEach(function (f) { var g = gen(f); if (!g.lua) return; var n = slug(f.name), k = n, i = 2; while (used[k]) k = n + '_' + (i++); used[k] = 1; files.push({ name: k + '.lua', data: new TextEncoder().encode(g.lua) }); });
@@ -1486,7 +1846,43 @@ body.focus-open { overflow: hidden; }
   }
   document.addEventListener('pointerup', finishDrag);
   document.addEventListener('pointercancel', function () { endDrag(); document.querySelectorAll('.list > .empty[hidden]').forEach(function (x) { x.hidden = false; }); });
-  document.addEventListener('keydown', function (ev) { if (ev.key !== 'Escape') return; if (drag) { endDrag(); renderAll(); } else if (state.focus) focusUp(); });
+  document.addEventListener('keydown', function (ev) { if (ev.key !== 'Escape') return; if (idrag) endIdrag(false); else if (drag) { endDrag(); renderAll(); } else if (state.innerKey) { state.innerKey = null; renderInner(); } else if (state.focus) focusUp(); });
+
+  /* ---------- inner rows drag (own small handler; rows live inside one site list) ---------- */
+  var idrag = null;
+  document.addEventListener('pointerdown', function (ev) {
+    var grip = ev.target.closest('[data-igrip]'); if (!grip || ev.button > 0) return;
+    ev.preventDefault();
+    var row = grip.closest('.irow'), list = row.parentNode, r = row.getBoundingClientRect(), ghost = row.cloneNode(true);
+    ghost.classList.add('ghost'); ghost.style.width = r.width + 'px'; ghost.style.left = r.left + 'px'; ghost.style.top = r.top + 'px';
+    document.body.appendChild(ghost); document.body.style.userSelect = 'none'; row.classList.add('dragging');
+    idrag = { row: row, list: list, ghost: ghost, dy: ev.clientY - r.top, at: -1, site: list.dataset.irows, k: row.dataset.k };
+    try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+  });
+  document.addEventListener('pointermove', function (ev) {
+    if (!idrag) return;
+    idrag.ghost.style.top = (ev.clientY - idrag.dy) + 'px';
+    var kids = Array.prototype.filter.call(idrag.list.children, function (c) { return c.classList.contains('irow') && c !== idrag.row && !c.classList.contains('lockrow'); });
+    var at = kids.length;
+    for (var i = 0; i < kids.length; i++) { var rc = kids[i].getBoundingClientRect(); if (ev.clientY < rc.top + rc.height / 2) { at = i; break; } }
+    idrag.at = at; idrag.kids = kids;
+    idrag.list.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); });
+    var line = document.createElement('li'); line.className = 'drop-line'; idrag.list.insertBefore(line, kids[at] || null);
+    var sc = $('#innerBody'), br = sc.getBoundingClientRect(); if (ev.clientY < br.top + 50) sc.scrollTop -= 12; else if (ev.clientY > br.bottom - 50) sc.scrollTop += 12;
+  });
+  function endIdrag(apply) {
+    if (!idrag) return; var d = idrag; idrag = null; d.ghost.remove(); d.row.classList.remove('dragging'); document.body.style.userSelect = '';
+    d.list.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); });
+    if (!apply || d.at < 0) return;
+    var site = siteById(d.site); if (!site) return;
+    var rows = innerRows(site), from = rows.findIndex(function (r) { return r.k === d.k; }); if (from < 0) return;
+    var target = d.kids[d.at]; var moved = rows.splice(from, 1)[0];
+    var to = target ? rows.findIndex(function (r) { return r.k === target.dataset.k; }) : rows.length;
+    if (to < 0) to = rows.length;
+    rows.splice(to, 0, moved); saveRows(site, rows); commit();
+  }
+  document.addEventListener('pointerup', function () { endIdrag(true); });
+  document.addEventListener('pointercancel', function () { endIdrag(false); });
 
   /* ---------- Android app mode: the WebView exposes AndroidBridge.saveFile(name, base64, folder) ---------- */
   var FOLDER_KEY = 'luamenudesk.folder';
