@@ -173,7 +173,14 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 280px; overflow: auto;
 .chip { min-height: 40px; padding: 4px 12px; border: 1px dashed var(--muted); background: var(--bg); border-radius: 99px; font-size: 13.5px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 .chip.over { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
 body.focus-open { overflow: hidden; }
-#inner { z-index: 55; }
+.ipanel { background: var(--surface); border: 1px solid var(--accent); box-shadow: 0 0 0 1px var(--accent); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ipanel > .file-head b { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-display); }
+.isite > summary { cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+.isite[open] > summary { margin-bottom: 8px; }
+.irow.movedrow { opacity: .7; }
+.irow .promo-tag { font-size: 11.5px; color: var(--accent); padding-inline: 6px; }
+.irow .nopromo-tag { font-size: 11.5px; color: var(--muted); padding-inline: 6px; }
+.item.inner { border-color: var(--accent); }
 .isite { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .isite h3 { margin: 0; font-family: var(--font-display); font-size: 15px; overflow-wrap: anywhere; }
 .ihead { display: flex; align-items: flex-start; gap: 8px; }
@@ -242,7 +249,6 @@ body.focus-open { overflow: hidden; }
   </section>
 </div>
 <div class="focus" id="focus" hidden></div>
-<div class="focus" id="inner" hidden></div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
@@ -902,7 +908,7 @@ body.focus-open { overflow: hidden; }
         sites.push(site);
         if (!args[0]) { fail('ไม่มีรายการ'); continue; }
         const [fa, fb] = args[0];
-        let initial = null, emitters = [], nestedAny = false, computed = false;
+        let initial = null, emitters = [], nestedAny = false, computed = false, mapName = null;
 
         if (toks[fa].text === '{' && matchClose(toks, fa) === fb) {
           initial = tableElems(A, fa, fb);
@@ -932,6 +938,10 @@ body.focus-open { overflow: hidden; }
               continue;
             }
             if (t.kind !== 'name') continue;
+            if (t.text !== V && emitters.length && toks[q + 1] && toks[q + 1].text === '[' && toks[q + 2] && toks[q + 2].text === '#' && toks[q + 3] && toks[q + 3].text === V &&
+                toks[q + 4] && toks[q + 4].text === ']' && toks[q + 5] && toks[q + 5].text === '=' && toks[q + 6] && toks[q + 6].kind === 'string') {
+              emitters[emitters.length - 1].key = unquoteLua(toks[q + 6].text); mapName = t.text; q += 6; continue;
+            }
             if (t.text === V && !(q > 0 && (toks[q - 1].text === '.' || toks[q - 1].text === ':')) && toks[q + 1] && toks[q + 1].text === '[') {
               const cl = matchClose(toks, q + 1);
               if (cl > 0 && toks[cl + 1] && toks[cl + 1].text === '=' && !(toks[cl + 2] && toks[cl + 2].text === '=')) {
@@ -964,29 +974,180 @@ body.focus-open { overflow: hidden; }
           nestedAny = emitters.some(e => e.ctx.length > 0);
         } else { fail('รายการไม่ใช่ตารางหรือตัวแปรธรรมดา'); continue; }
 
-        const all = initial.map(e => ({ kind: e.kind, text: e.text, nested: false })).concat(emitters.map(e => ({ kind: e.kind, text: e.text, nested: e.ctx.length > 0, loop: e.loop, computed: !!e.computed })));
+        const all = initial.map(e => ({ kind: e.kind, text: e.text, nested: false })).concat(emitters.map(e => ({ kind: e.kind, text: e.text, nested: e.ctx.length > 0, loop: e.loop, computed: !!e.computed, key: e.key })));
         if (!nestedAny && !computed) {
           site.mode = 'index'; site.n = all.length;
-          site.entries = all.map((e, k) => ({ k: (k + 1) + ':' + e.text, pos: k + 1, kind: e.kind, text: e.text, locked: false }));
+          site.entries = all.map((e, k) => ({ k: (k + 1) + ':' + e.text, pos: k + 1, kind: e.kind, text: e.text, locked: false, key: e.key }));
         } else {
           site.mode = 'label';
-          site.entries = all.map((e, k) => ({ k: (k + 1) + ':' + e.text, kind: e.kind, text: e.text, cond: !!e.nested, loop: !!e.loop, locked: e.kind === 'dyn' }));
+          site.entries = all.map((e, k) => ({ k: (k + 1) + ':' + e.text, kind: e.kind, text: e.text, cond: !!e.nested, loop: !!e.loop, locked: e.kind === 'dyn', key: e.key }));
           const movable = site.entries.filter(e => !e.locked).length;
           if (movable === 0) { fail('รายการเป็นข้อความไดนามิกทั้งหมด จึงจับคู่ตอนรันไม่ได้'); continue; }
           if (movable < 2) { fail('มีรายการที่จัดได้น้อยกว่า 2 รายการ'); continue; }
         }
         if (site.entries.length < 2) { fail('มีรายการเดียว'); continue; }
+        attachPromos(A, site, st, i, mapName);
       }
     });
     return sites;
+  }
+
+
+  /* Can an option of an inner menu be lifted out as a stand-alone action? Only when its dispatch branch uses nothing but
+   * top-level names (plus the choice variable, which is re-declared with its original value). */
+  const NAV_BODIES = [/^$/, /^return$/, /^goHome \( \)$/, /^gg \. setVisible \( false \) repeat gg \. sleep \( 100 \) until gg \. isVisible \( \) gg \. setVisible \( false \)$/];
+  function parseChain(toks, p, limit) {
+    const clauses = []; let k = p;
+    for (;;) {
+      let q = k + 1, d = 0;
+      while (q <= limit && !(d === 0 && toks[q].kind === 'kw' && toks[q].text === 'then')) {
+        const t = toks[q];
+        if (t.kind === 'op') { if (t.text === '(' || t.text === '{' || t.text === '[') d++; else if (t.text === ')' || t.text === '}' || t.text === ']') d--; }
+        q++;
+      }
+      if (q > limit) return null;
+      const cond = [k + 1, q - 1], b0 = q + 1; let depth = 0; q = b0;
+      for (; q <= limit; q++) {
+        const t = toks[q];
+        if (t.kind !== 'kw') continue;
+        if (OPEN_KW.has(t.text)) depth++;
+        else if (t.text === 'end' || t.text === 'until') { if (depth === 0) break; depth--; }
+        else if ((t.text === 'elseif' || t.text === 'else') && depth === 0) break;
+      }
+      if (q > limit) return null;
+      clauses.push({ cond, body: [b0, q - 1] });
+      if (toks[q].text === 'elseif') { k = q; continue; }
+      if (toks[q].text === 'else') {
+        let r = q + 1; depth = 0;
+        for (; r <= limit; r++) { const t = toks[r]; if (t.kind !== 'kw') continue; if (OPEN_KW.has(t.text)) depth++; else if (t.text === 'end' || t.text === 'until') { if (depth === 0) break; depth--; } }
+        if (r > limit) return null;
+        clauses.push({ cond: null, body: [q + 1, r - 1] });
+        return { clauses, end: r };
+      }
+      return { clauses, end: q };
+    }
+  }
+  function condValues(A, cond, dv) {
+    // "dv == 3 or dv == 5" -> [3,5];  any other shape -> null.  "dv == nil" atoms are ignored.
+    const toks = A.toks, vals = []; let d = 0, st = cond[0];
+    const atoms = [];
+    for (let k = cond[0]; k <= cond[1]; k++) {
+      const t = toks[k];
+      if (t.kind === 'op') { if (t.text === '(' || t.text === '{' || t.text === '[') d++; else if (t.text === ')' || t.text === '}' || t.text === ']') d--; }
+      else if (d === 0 && t.kind === 'kw' && t.text === 'or') { atoms.push([st, k - 1]); st = k + 1; }
+    }
+    atoms.push([st, cond[1]]);
+    for (const [a, b] of atoms) {
+      if (b - a !== 2 || toks[a].text !== dv || toks[a + 1].text !== '==') return null;
+      const v = toks[b];
+      if (v.kind === 'number') vals.push(Number(v.text)); else if (v.kind === 'string') vals.push(unquoteLua(v.text)); else if (v.text !== 'nil') return null;
+    }
+    return vals;
+  }
+  function localsBefore(toks, a, upto) {
+    const out = new Set();
+    for (let k = a; k < upto; k++) {
+      const t = toks[k];
+      if (t.kind !== 'kw') continue;
+      if (t.text === 'local') {
+        if (toks[k + 1].kind === 'kw' && toks[k + 1].text === 'function') { out.add(toks[k + 2].text); continue; }
+        let j = k + 1;
+        while (toks[j] && toks[j].kind === 'name') { out.add(toks[j].text); if (toks[j + 1] && toks[j + 1].text === ',') j += 2; else break; }
+      } else if (t.text === 'for') {
+        let j = k + 1;
+        while (toks[j] && toks[j].kind === 'name') { out.add(toks[j].text); if (toks[j + 1] && toks[j + 1].text === ',') j += 2; else break; }
+      } else if (t.text === 'function') {
+        let j = k + 1; while (toks[j] && toks[j].text !== '(' && j < upto) j++;
+        j++; while (toks[j] && toks[j].text !== ')' && j < upto) { if (toks[j].kind === 'name') out.add(toks[j].text); j++; }
+      }
+    }
+    return out;
+  }
+  function attachPromos(A, site, st, callIdx, mapName) {
+    const toks = A.toks;
+    const no = r => site.entries.forEach(e => { e.promo = null; e.noPromo = r; });
+    let cv = null;
+    if (callIdx >= 2 && toks[callIdx - 1].text === '=' && toks[callIdx - 2].kind === 'name') cv = toks[callIdx - 2].text;
+    if (!cv) return no('ไม่พบตัวแปรผลลัพธ์ของ gg.choice');
+    const close = matchClose(toks, callIdx + 3);
+    let alias = null;
+    if (mapName) {
+      for (let q = close + 1; q + 5 <= st.b; q++) {
+        if (toks[q].text === 'local' && toks[q + 1].kind === 'name' && toks[q + 2].text === '=' && toks[q + 3].text === mapName && toks[q + 4].text === '[' && toks[q + 5].text === cv) { alias = toks[q + 1].text; break; }
+      }
+    }
+    const dv = alias || cv;
+    // if-chains at the same block depth as the call
+    const branches = [];
+    let depth = 0;
+    for (let q = close + 1; q <= st.b; q++) {
+      const t = toks[q];
+      if (t.kind !== 'kw') continue;
+      if (t.text === 'if' && depth === 0) {
+        const ch = parseChain(toks, q, st.b);
+        if (!ch) break;
+        ch.clauses.forEach(c => { if (!c.cond) return; const vals = condValues(A, c.cond, dv); if (vals && vals.length) branches.push({ vals, body: c.body }); });
+        q = ch.end; continue;
+      }
+      if (OPEN_KW.has(t.text)) depth++;
+      else if (t.text === 'end' || t.text === 'until') { if (depth === 0) break; depth--; }
+    }
+    site.entries.forEach(e => {
+      e.promo = null; e.noPromo = '';
+      if (e.locked) { e.noPromo = 'รายการไดนามิก'; return; }
+      if (e.kind !== 'lit') { e.noPromo = 'ชื่อรายการไม่คงที่'; return; }
+      if (/^─+$/.test(e.text)) { e.noPromo = 'เส้นคั่น'; return; }
+      const id = alias ? e.key : (site.mode === 'index' ? e.pos : undefined);
+      if (id === undefined) { e.noPromo = 'หาโค้ดของรายการนี้ไม่ได้'; return; }
+      const br = branches.find(b => b.vals.indexOf(id) >= 0);
+      if (!br) { e.noPromo = 'หาโค้ดของรายการนี้ไม่ได้'; return; }
+      const [b0, b1] = br.body;
+      const locals = localsBefore(toks, st.a, b0);
+      const bodyToks = b1 >= b0 ? toks.slice(b0, b1 + 1) : [];
+      const norm = bodyToks.map(x => x.text).join(' ');
+      if (NAV_BODIES.some(re => re.test(norm))) { e.noPromo = 'ปุ่มนำทาง (กลับ/หน้าหลัก/ปิด)'; return; }
+      // control flow that only makes sense inside the menu loop
+      let bad = '';
+      bodyToks.forEach(x => { if (x.text === 'goto' && x.kind === 'kw') bad = 'ใช้ goto'; else if (x.text === '...') bad = 'ใช้ ...'; });
+      // 'break' check: a break must sit inside a loop that is itself inside the branch
+      { const st2 = []; let pend = 0;
+        bodyToks.forEach(x => {
+          if (x.kind !== 'kw') return;
+          if (x.text === 'for' || x.text === 'while') { st2.push('L'); pend++; }
+          else if (x.text === 'do') { if (pend > 0) pend--; else st2.push('B'); }
+          else if (x.text === 'repeat') st2.push('L');
+          else if (x.text === 'if' || x.text === 'function') st2.push('B');
+          else if (x.text === 'end' || x.text === 'until') st2.pop();
+          else if (x.text === 'break' && st2.indexOf('L') < 0) bad = 'ใช้ break ของลูปเมนู';
+        });
+      }
+      if (bad) { e.noPromo = bad; return; }
+      let fn = { reads: new Set(), assigns: new Set() };
+      if (b1 >= b0) {   // wrap the branch as a function body so that 'return' parses
+        const w = tokenize('local __f = function() end'), wt = w.slice(0, 6).concat(bodyToks, w.slice(6));
+        fn = freeNames(wt, 0, wt.length - 1);
+      }
+      const used = new Set([...fn.reads, ...fn.assigns]);
+      const pre = [];
+      if (used.has(cv)) { if (site.mode === 'index' && !alias) pre.push('local ' + cv + ' = ' + e.pos); else { e.noPromo = 'ใช้ตัวแปรผลลัพธ์ของเมนู'; return; } }
+      if (alias && used.has(alias)) pre.push('local ' + alias + ' = ' + luaStr(e.key));
+      const names = [...used].filter(n => !STD.has(n) && n !== cv && n !== alias);
+      const roots = [];
+      for (const n of names) {
+        const rs = A.resolve(n, Infinity);
+        if (!rs.length || locals.has(n)) { e.noPromo = 'ใช้ตัวแปร "' + n + '" ที่อยู่ภายในเมนู'; return; }
+        rs.forEach(j => roots.push(j));
+      }
+      e.promo = { src: b1 >= b0 ? A.src.slice(toks[b0].start, toks[b1].end) : '', pre, roots: [...new Set(roots)] };
+    });
   }
 
   /* Merge a stored config ([{k,label?,hide?}, ...] in display order) with a site's current entries. */
   function siteConfig(site, stored) {
     const byK = new Map(site.entries.map(e => [e.k, e]));
     const rows = [], seen = new Set();
-    (stored || []).forEach(r => { const e = byK.get(r.k); if (e && !seen.has(r.k)) { seen.add(r.k); rows.push({ e, k: r.k, label: r.label || '', hide: !!r.hide }); } });
-    site.entries.forEach(e => { if (!seen.has(e.k)) rows.push({ e, k: e.k, label: '', hide: false }); });
+    (stored || []).forEach(r => { const e = byK.get(r.k); if (e && !seen.has(r.k)) { seen.add(r.k); rows.push({ e, k: r.k, label: r.label || '', hide: !!r.hide || !!r.moved, moved: !!r.moved }); } });
+    site.entries.forEach(e => { if (!seen.has(e.k)) rows.push({ e, k: e.k, label: '', hide: false, moved: false }); });
     return rows;
   }
   function siteIsDefault(site, stored) {
@@ -1094,6 +1255,10 @@ body.focus-open { overflow: hidden; }
     const warnings = [];
     const byKey = new Map(A.menu.entries.map(e => [e.key, e]));
 
+    const innerOf = n => {
+      const site = (A.sites || []).find(x => x.id === n.site), en = site && site.entries.find(x => x.k === n.k);
+      return site && en && en.promo ? { site, en } : null;
+    };
     // prune items whose entries no longer exist in this script
     function prune(items) {
       const out = [];
@@ -1101,6 +1266,8 @@ body.focus-open { overflow: hidden; }
         if (n.t === 'group') {
           const kids = prune(n.items);
           if (kids.length) out.push({ t: 'group', label: n.label, items: kids });
+        } else if (n.t === 'inner') {
+          if (innerOf(n)) out.push(n); else warnings.push('ไม่พบตัวเลือก "' + (n.label || n.k) + '" ในสคริปต์นี้ จึงข้ามไป');
         } else if (byKey.has(n.key)) out.push(n);
         else warnings.push('ไม่พบรายการ "' + (n.label || n.key) + '" ในสคริปต์นี้ จึงข้ามไป');
       });
@@ -1116,13 +1283,20 @@ body.focus-open { overflow: hidden; }
     let gcount = 0;
     const groupFns = [];
     const labelOf = n => (n.label !== undefined && n.label !== null && n.label !== '') ? luaStr(n.label)
-      : byKey.get(n.key).labelRaw;
+      : (n.t === 'inner' ? luaStr(innerOf(n).en.text) : byKey.get(n.key).labelRaw);
+    const promoIds = new Map(), promoDefs = [];
+    const promoId = n => {
+      const key = n.site + '|' + n.k;
+      if (!promoIds.has(key)) { promoIds.set(key, promoDefs.length + 1); promoDefs.push(innerOf(n)); }
+      return promoIds.get(key);
+    };
 
     function actionCode(n, inGroup, groupIds) {
       if (n.t === 'group') {
         const id = groupIds.get(n);
         return inGroup ? '__menus.g' + id + '()' : 'runOrHome(__menus.g' + id + ')';
       }
+      if (n.t === 'inner') return inGroup ? '__promo.p' + promoId(n) + '()' : 'runOrHome(__promo.p' + promoId(n) + ')';
       const act = byKey.get(n.key).actionSrc;
       if (inGroup) {
         const m = /^runOrHome\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)$/.exec(act);
@@ -1205,7 +1379,7 @@ body.focus-open { overflow: hidden; }
 
     // which statements are needed
     const roots = new Set(A.alwaysKeep);
-    collectLeaves(items).forEach(n => byKey.get(n.key).rootStmts.forEach(i => roots.add(i)));
+    collectLeaves(items).forEach(n => { if (n.t === 'inner') { promoId(n); innerOf(n).en.promo.roots.forEach(i => roots.add(i)); } else byKey.get(n.key).rootStmts.forEach(i => roots.add(i)); });
     if (needTitle) A.menu.titleRootStmts.forEach(i => roots.add(i));
     ['goHome', 'runOrHome'].forEach(nm => (A.localDefs.get(nm) || []).slice(-1).forEach(i => roots.add(i)));
     let cl = closure(A, roots);
@@ -1246,6 +1420,20 @@ body.focus-open { overflow: hidden; }
     }
     segs.forEach(s => out.push(s.replace(/\s+$/, '')));
     out.push('');
+    if (promoDefs.length) {
+      out.push('-- =========================================');
+      out.push('-- Options moved out of inner menus (generated). Each body is the original branch, copied verbatim.');
+      out.push('-- =========================================');
+      out.push('local __promo = {}');
+      out.push('');
+      promoDefs.forEach((d, i) => {
+        out.push('function __promo.p' + (i + 1) + '()');
+        d.en.promo.pre.forEach(l => out.push('  ' + l));
+        if (d.en.promo.src.trim()) out.push('  ' + d.en.promo.src.replace(/\s+$/, ''));
+        out.push('end');
+        out.push('');
+      });
+    }
     if (groupFns.length) {
       out.push('-- =========================================');
       out.push('-- Menu groups (generated)');
@@ -1264,7 +1452,7 @@ body.focus-open { overflow: hidden; }
     out.push('');
     const lua = out.join('\n');
     const lines = lua.split('\n').length;
-    return { lua, warnings, stats: { statements: ids.length, lines, bytes: new TextEncoder().encode(lua).length, direct, innerSites: usedShim.length } };
+    return { lua, warnings, stats: { statements: ids.length, lines, bytes: new TextEncoder().encode(lua).length, direct, innerSites: usedShim.length, promoted: promoDefs.length } };
   }
 
   /* ───────────────────────── layout helpers ───────────────────────── */
@@ -1463,7 +1651,7 @@ body.focus-open { overflow: hidden; }
   function loadStored(name) { try { var s = localStorage.getItem(STORE_KEY + name); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function validLayout(l) {
     if (!l || typeof l !== 'object' || !Array.isArray(l.files)) return false;
-    var okItems = function (items) { return Array.isArray(items) && items.every(function (n) { return n && (n.t === 'item' ? typeof n.key === 'string' : n.t === 'group' && okItems(n.items)); }); };
+    var okItems = function (items) { return Array.isArray(items) && items.every(function (n) { return n && (n.t === 'item' ? typeof n.key === 'string' : n.t === 'inner' ? (typeof n.site === 'string' && typeof n.k === 'string') : n.t === 'group' && okItems(n.items)); }); };
     return l.files.every(function (f) { return f && typeof f.name === 'string' && okItems(f.items); });
   }
   function ensureIds(layout) {
@@ -1546,14 +1734,20 @@ body.focus-open { overflow: hidden; }
         '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || '') + '" placeholder="ชื่อกลุ่ม" aria-label="ชื่อกลุ่ม"><div class="meta gmeta">กลุ่ม · ' + n.items.length + ' รายการ <button class="btn small" type="button" data-act="open">เปิด ›</button></div></div>' + acts + '</div>' +
         (compact ? '</li>' : '<ul class="list" data-list="' + esc(n.id) + '">' + (n.items.length ? n.items.map(function (x) { return renderItem(x, false); }).join('') : '<li class="empty">กลุ่มว่าง</li>') + '</ul></li>');
     }
+    if (n.t === 'inner') {
+      var ie = innerEntry(n);
+      return '<li class="item inner' + (ie ? '' : ' missing') + '" data-id="' + esc(n.id) + '"><button class="grip" type="button" data-grip="1" aria-label="ลากเมนู">⠿</button>' +
+        '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || (ie ? ie.en.text : '')) + '" aria-label="ชื่อที่แสดง">' +
+        '<div class="meta">' + (ie ? 'ย้ายมาจากเมนูรอง · ' + esc(ie.site.title) : 'ไม่พบในสคริปต์นี้ (จะถูกข้าม)') + '</div></div>' + acts + '</li>';
+    }
     var e = entryByKey(n.key);
     return '<li class="item' + (e ? '' : ' missing') + '" data-id="' + esc(n.id) + '"><button class="grip" type="button" data-grip="1" aria-label="ลากเมนู">⠿</button>' +
       '<div class="body"><input class="field lbl" data-act="label" value="' + esc(n.label || (e ? e.label : '')) + '" aria-label="ชื่อที่แสดง">' +
-      '<div class="meta gmeta">' + (e ? esc(n.key) : 'ไม่พบในสคริปต์นี้ (จะถูกข้าม)') + (e && innerSites(e).length ? ' <button class="btn small" type="button" data-act="inner">จัดเมนูข้างใน<span class="nb">' + innerSites(e).length + '</span></button>' : '') + '</div></div>' + acts + '</li>';
+      '<div class="meta gmeta">' + (e ? esc(n.key) : 'ไม่พบในสคริปต์นี้ (จะถูกข้าม)') + (e && !compact && innerSites(e).length ? ' <button class="btn small" type="button" data-act="inner">' + (state.innerKey === n.key ? 'ปิดเมนูรอง' : 'เมนูรอง') + '<span class="nb">' + innerSites(e).length + '</span></button>' : '') + '</div></div>' + acts + '</li>';
   }
   function renderBoard() {
     var files = allFiles();
-    var html = files.map(function (f) {
+    var html = innerPanelHtml() + files.map(function (f) {
       var g = gen(f);
       var st = g.stats ? '<span class="ok">พร้อม</span> · ' + g.stats.lines.toLocaleString('th-TH') + ' บรรทัด · ' + Math.round(g.stats.bytes / 1024) + ' KB' + (g.stats.direct ? ' · เปิดตรง' : '') + (g.stats.innerSites ? ' · จัดเมนูข้างใน ' + g.stats.innerSites : '') : 'ยังไม่มีเมนู';
       var warn = g.warnings.length ? '<div class="warn">' + esc(g.warnings.join(' / ')) + '</div>' : '';
@@ -1572,52 +1766,65 @@ body.focus-open { overflow: hidden; }
     $('#tbZip').hidden = !(state.dl && files.length);
     $('#tbLayoutSave').hidden = !state.dl;
   }
-  function renderAll() { renderSource(); renderPalette(); renderBoard(); renderFocus(); renderInner(); }
+  function renderAll() { renderSource(); renderPalette(); renderBoard(); renderFocus(); }
 
-  /* ---------- inner menu editor: order / hide / rename the options a script menu shows ---------- */
+  /* ---------- inner (sub) menu panel: shown on the board next to the main menus ---------- */
   function innerSites(e) { return (e.siteIds || []).map(function (id) { return siteById(id); }).filter(function (x) { return x && x.mode; }); }
-  function siteById(id) { return state.A.sites.find(function (x) { return x.id === id; }); }
+  function siteById(id) { return state.A ? state.A.sites.find(function (x) { return x.id === id; }) : null; }
+  function innerEntry(n) { var site = siteById(n.site), en = site && site.entries.find(function (x) { return x.k === n.k; }); return site && en ? { site: site, en: en } : null; }
   function innerRows(site) { return L.siteConfig(site, (state.layout.inner || {})[site.id]); }
   function saveRows(site, rows) {
-    var arr = rows.map(function (r) { var o = { k: r.k }; if (r.label && r.label !== r.e.text) o.label = r.label; if (r.hide) o.hide = true; return o; });
+    var arr = rows.map(function (r) { var o = { k: r.k }; if (r.label && r.label !== r.e.text) o.label = r.label; if (r.moved) o.moved = true; else if (r.hide) o.hide = true; return o; });
     state.layout.inner = state.layout.inner || {};
     if (L.siteIsDefault(site, arr)) delete state.layout.inner[site.id]; else state.layout.inner[site.id] = arr;
   }
-  function renderInner() {
-    var box = $('#inner'); var old = $('#innerBody'); var keep = old ? old.scrollTop : 0;
+  // an option that was moved to a main menu comes back to its sub menu when that copy is removed from every file
+  function syncMoved() {
+    if (!state.A || !state.layout.inner) return;
+    var used = {}; allFiles().forEach(function (f) { walk(f.items, function (n) { if (n.t === 'inner') used[n.site + '|' + n.k] = 1; }); });
+    Object.keys(state.layout.inner).forEach(function (sid) {
+      var site = siteById(sid), arr = state.layout.inner[sid], ch = false;
+      if (!site) return;
+      arr.forEach(function (r) { if (r.moved && !used[sid + '|' + r.k]) { delete r.moved; ch = true; } });
+      if (ch && L.siteIsDefault(site, arr)) delete state.layout.inner[sid];
+    });
+  }
+  function innerPanelHtml() {
     var e = state.innerKey && entryByKey(state.innerKey);
-    if (!e) { state.innerKey = null; box.hidden = true; box.innerHTML = ''; if (!state.focus) document.body.classList.remove('focus-open'); return; }
+    if (!e) { state.innerKey = null; return ''; }
     var all = (e.siteIds || []).map(siteById).filter(Boolean), ok = all.filter(function (x) { return x.mode; }), bad = all.filter(function (x) { return !x.mode; });
-    var cards = ok.map(function (site) {
+    state.openSites = state.openSites || {};
+    var cards = ok.map(function (site, idx) {
       var rows = innerRows(site), custom = !L.siteIsDefault(site, (state.layout.inner || {})[site.id]);
-      return '<section class="isite" data-site="' + esc(site.id) + '"><div class="ihead"><div><h3>' + esc(site.title) + '</h3><div class="meta">' + esc(site.fn) + ' · บรรทัด ' + site.line + ' · ' +
-        (site.mode === 'index' ? 'ลำดับคงที่' : 'จับคู่ตามข้อความ (บางรายการขึ้นกับเงื่อนไข)') + '</div></div>' +
+      var open = state.openSites[site.id] !== undefined ? state.openSites[site.id] : idx === 0;
+      return '<details class="isite" data-site="' + esc(site.id) + '"' + (open ? ' open' : '') + '><summary>' + esc(site.title) + '</summary>' +
+        '<div class="ihead"><div class="meta">' + esc(site.fn) + ' · บรรทัด ' + site.line + ' · ' + (site.mode === 'index' ? 'ลำดับคงที่' : 'จับคู่ตามข้อความ') + '</div>' +
         '<button class="btn small" type="button" data-act="ireset"' + (custom ? '' : ' disabled') + '>คืนค่าเดิม</button></div>' +
-        '<ul class="irows" data-irows="' + esc(site.id) + '">' + rows.map(function (r, i) {
+        '<ul class="irows" data-irows="' + esc(site.id) + '">' + rows.map(function (r) {
           var en = r.e;
           if (en.locked) return '<li class="irow lockrow" data-k="' + esc(r.k) + '"><div class="ibody"><div class="tagm">ไดนามิก · ' + esc(en.text) + ' · อยู่ตามรายการก่อนหน้า</div></div></li>';
+          if (r.moved) return '<li class="irow hid lockrow movedrow" data-k="' + esc(r.k) + '"><div class="ibody"><div class="tagm">' + esc(en.text) + ' · ย้ายไปเมนูหลักแล้ว</div></div><button class="icon-btn" type="button" data-act="ihide" aria-label="นำกลับมาแสดงที่เมนูรองด้วย">↩</button></li>';
           var editable = en.kind === 'lit';
-          return '<li class="irow' + (r.hide ? ' hid' : '') + '" data-k="' + esc(r.k) + '"><button class="grip" type="button" data-igrip="1" aria-label="ลากเรียง">⠿</button><div class="ibody">' +
+          return '<li class="irow' + (r.hide ? ' hid' : '') + '" data-k="' + esc(r.k) + '"' + (en.promo ? ' data-promo="1"' : '') + '><button class="grip" type="button" data-igrip="1" aria-label="ลาก">⠿</button><div class="ibody">' +
             (editable ? '<input class="field lbl" data-act="ilabel" value="' + esc(r.label || en.text) + '" aria-label="ชื่อที่แสดง">' : '<div class="tagm">' + esc(en.kind === 'pat' ? en.text + ' …(ไดนามิก)' : en.text) + '</div>') +
+            (en.promo ? '<div class="promo-tag">ลากไปวางในเมนูหลักได้</div>' : (editable ? '<div class="nopromo-tag">ย้ายออกไม่ได้ · ' + esc(en.noPromo || '') + '</div>' : '')) +
             '</div><button class="icon-btn" type="button" data-act="iup" aria-label="เลื่อนขึ้น">↑</button><button class="icon-btn" type="button" data-act="idown" aria-label="เลื่อนลง">↓</button>' +
-            '<button class="icon-btn" type="button" data-act="ihide" aria-label="ซ่อน/แสดง" aria-pressed="' + (r.hide ? 'true' : 'false') + '">' + (r.hide ? '🙈' : '👁') + '</button></li>';
-        }).join('') + '</ul></section>';
+            '<button class="icon-btn" type="button" data-act="ihide" aria-label="ซ่อน/แสดง">' + (r.hide ? '🙈' : '👁') + '</button></li>';
+        }).join('') + '</ul></details>';
     }).join('');
-    box.innerHTML =
-      '<div class="fhead"><button class="icon-btn" type="button" data-act="iclose" aria-label="กลับ">←</button><div class="crumbs"><b>' + esc(e.label) + '</b> › ตัวเลือกข้างใน</div><button class="icon-btn" type="button" data-act="iclose" aria-label="ปิด">×</button></div>' +
-      '<div class="fbody innerlist" id="innerBody">' +
-        '<p class="sub">ลาก ⠿ หรือกด ↑↓ เพื่อเรียงใหม่ · 👁 ซ่อน · แก้ชื่อที่แสดงได้ การตั้งค่านี้ใช้กับทุกไฟล์ที่มีเมนูนี้ เมื่อเลือกรายการ สคริปต์จะทำงานเหมือนเดิมทุกอย่าง</p>' +
-        (cards || '<p class="sub">เมนูนี้ไม่มีตัวเลือกข้างในที่จัดได้</p>') +
-        (bad.length ? '<details><summary>ไม่รองรับ ' + bad.length + ' เมนู (รายการเปลี่ยนตามข้อมูล)</summary><ul class="list">' + bad.map(function (x) { return '<li class="bad"><b>' + esc(x.title) + '</b> · ' + esc(x.fn) + ' — ' + esc(x.reason) + '</li>'; }).join('') + '</ul></details>' : '') +
-      '</div>';
-    box.hidden = false; document.body.classList.add('focus-open');
-    $('#innerBody').scrollTop = keep;
+    return '<section class="ipanel" id="ipanel" aria-label="เมนูรอง"><div class="file-head"><b>⤵ ' + esc(e.label) + ' · เมนูรอง</b><button class="icon-btn" type="button" data-act="iclose" aria-label="ปิดเมนูรอง">×</button></div>' +
+      '<p class="sub">ลาก ⠿ ไปวางในเมนูหลักด้านล่างเพื่อย้ายตัวเลือกออกมา · ลากในกรอบเดียวกันหรือกด ↑↓ เพื่อเรียงใหม่ · 👁 ซ่อน · แก้ชื่อได้ ตัวเลือกที่ย้ายออกมาจะทำงานด้วยโค้ดเดิมของมัน</p>' +
+      (cards || '<p class="sub">เมนูนี้ไม่มีตัวเลือกข้างในที่จัดได้</p>') +
+      (bad.length ? '<details><summary class="sub">ไม่รองรับ ' + bad.length + ' เมนู (รายการเปลี่ยนตามข้อมูล)</summary><ul class="list">' + bad.map(function (x) { return '<li class="bad sub"><b>' + esc(x.title) + '</b> · ' + esc(x.fn) + ' — ' + esc(x.reason) + '</li>'; }).join('') + '</ul></details>' : '') +
+      '</section>';
   }
+  function renderInner() { renderBoard(); }
   function innerMove(site, k, to) {
     var rows = innerRows(site), i = rows.findIndex(function (r) { return r.k === k; }); if (i < 0) return;
     to = Math.max(0, Math.min(rows.length - 1, to)); if (to === i) return;
     var r = rows.splice(i, 1)[0]; rows.splice(to, 0, r); saveRows(site, rows); commit();
   }
+
 
   /* ---------- group focus view ---------- */
   function pathTo(id) {
@@ -1628,7 +1835,7 @@ body.focus-open { overflow: hidden; }
     return res;
   }
   function focusUp() { var p = state.focus && pathTo(state.focus); state.focus = p && p.groups.length > 1 ? p.groups[p.groups.length - 2].id : null; renderFocus(); }
-  window.__appBack = function () { if (drag || idrag) return false; if (state.innerKey) { state.innerKey = null; renderInner(); return true; } if (!state.focus) return false; focusUp(); return true; };
+  window.__appBack = function () { if (drag || idrag) return false; if (state.innerKey) { state.innerKey = null; renderBoard(); return true; } if (!state.focus) return false; focusUp(); return true; };
   function renderFocus() {
     var box = $('#focus'); var old = $('#focusBody'); var keep = old ? old.scrollTop : 0;
     var p = state.focus ? pathTo(state.focus) : null;
@@ -1666,15 +1873,15 @@ body.focus-open { overflow: hidden; }
     var e = state.A.menu.entries[idx]; var arr = listById(fileId); if (!arr) return;
     arr.push({ t: 'item', id: L.newId('i'), key: e.key });
   }
-  function commit() { persist(); renderAll(); }
+  function commit() { syncMoved(); persist(); renderAll(); }
 
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest('[data-act]'); var sec = ev.target.closest('.file');
     if (sec && !drag) { if (state.active !== sec.dataset.file) { state.active = sec.dataset.file; document.querySelectorAll('.file').forEach(function (x) { x.classList.toggle('active', x === sec); }); } }
     if (!b || b.tagName === 'INPUT' || b.tagName === 'SELECT' || b.tagName === 'DETAILS') return;
     var act = b.dataset.act, li = b.closest('.item'), id = li && li.dataset.id;
-    if (act === 'inner') { state.innerKey = li && locate(id) ? locate(id).node.key : null; renderInner(); return; }
-    if (act === 'iclose') { state.innerKey = null; renderInner(); return; }
+    if (act === 'inner') { var nk = li && locate(id) ? locate(id).node.key : null; state.innerKey = state.innerKey === nk ? null : nk; renderBoard(); if (state.innerKey) { var ip = $('#ipanel'); if (ip) ip.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } return; }
+    if (act === 'iclose') { state.innerKey = null; renderBoard(); return; }
     var isec = b.closest('.isite'); var isite = isec && siteById(isec.dataset.site), irow = b.closest('.irow'), ik = irow && irow.dataset.k;
     if (isite && act === 'ireset') { var st2 = state.layout.inner || {}; delete st2[isite.id]; commit(); return; }
     if (isite && irow && (act === 'iup' || act === 'idown')) {
@@ -1684,7 +1891,7 @@ body.focus-open { overflow: hidden; }
       if (jj >= 0 && jj < rr.length) innerMove(isite, ik, jj);
       return;
     }
-    if (isite && irow && act === 'ihide') { var r3 = innerRows(isite); var row = r3.find(function (r) { return r.k === ik; }); if (row) { row.hide = !row.hide; saveRows(isite, r3); commit(); } return; }
+    if (isite && irow && act === 'ihide') { var r3 = innerRows(isite); var row = r3.find(function (r) { return r.k === ik; }); if (row) { if (row.moved) { row.moved = false; row.hide = false; } else row.hide = !row.hide; saveRows(isite, r3); commit(); } return; }
     if (act === 'open') { state.focus = id; renderFocus(); return; }
     if (act === 'fclose') { state.focus = null; renderFocus(); return; }
     if (act === 'fup') { focusUp(); return; }
@@ -1708,12 +1915,15 @@ body.focus-open { overflow: hidden; }
     if (act === 'fname') { file.name = slug(el.value) || 'menu'; commit(); }
     else if (act === 'ftitle') { file.title = el.value; commit(); }
     else if (act === 'fdirect') { file.direct = el.checked; commit(); }
-    else if (act === 'label') { var loc = locate(el.closest('.item').dataset.id); var def = loc.node.t === 'item' && entryByKey(loc.node.key) ? entryByKey(loc.node.key).label : ''; loc.node.label = (el.value === def) ? '' : el.value; commit(); }
+    else if (act === 'label') { var loc = locate(el.closest('.item').dataset.id); var def = loc.node.t === 'item' && entryByKey(loc.node.key) ? entryByKey(loc.node.key).label : (loc.node.t === 'inner' && innerEntry(loc.node) ? innerEntry(loc.node).en.text : ''); loc.node.label = (el.value === def) ? '' : el.value; commit(); }
     else if (act === 'moveto' && el.value) {
       var li = el.closest('.item'); var l = locate(li.dataset.id); var target = listById(el.value);
       if (target && !(l.node.t === 'group' && containsId(l.node, el.value))) { l.arr.splice(l.arr.indexOf(l.node), 1); target.push(l.node); commit(); }
     }
   });
+  document.addEventListener('toggle', function (ev) {
+    var dd = ev.target; if (dd.classList && dd.classList.contains('isite')) { state.openSites = state.openSites || {}; state.openSites[dd.dataset.site] = dd.open; }
+  }, true);
   document.addEventListener('toggle', function (ev) {
     var d = ev.target; if (!(d.matches && d.matches('details[data-act="preview"]')) || !d.open) return;
     var f = allFiles().find(function (x) { return x.id === d.closest('.file').dataset.file; }); var g = gen(f);
@@ -1846,9 +2056,9 @@ body.focus-open { overflow: hidden; }
   }
   document.addEventListener('pointerup', finishDrag);
   document.addEventListener('pointercancel', function () { endDrag(); document.querySelectorAll('.list > .empty[hidden]').forEach(function (x) { x.hidden = false; }); });
-  document.addEventListener('keydown', function (ev) { if (ev.key !== 'Escape') return; if (idrag) endIdrag(false); else if (drag) { endDrag(); renderAll(); } else if (state.innerKey) { state.innerKey = null; renderInner(); } else if (state.focus) focusUp(); });
+  document.addEventListener('keydown', function (ev) { if (ev.key !== 'Escape') return; if (idrag) endIdrag(false); else if (drag) { endDrag(); renderAll(); } else if (state.innerKey) { state.innerKey = null; renderBoard(); } else if (state.focus) focusUp(); });
 
-  /* ---------- inner rows drag (own small handler; rows live inside one site list) ---------- */
+  /* ---------- sub menu rows: drag to re-order inside their card, or out into a main menu list ---------- */
   var idrag = null;
   document.addEventListener('pointerdown', function (ev) {
     var grip = ev.target.closest('[data-igrip]'); if (!grip || ev.button > 0) return;
@@ -1856,30 +2066,54 @@ body.focus-open { overflow: hidden; }
     var row = grip.closest('.irow'), list = row.parentNode, r = row.getBoundingClientRect(), ghost = row.cloneNode(true);
     ghost.classList.add('ghost'); ghost.style.width = r.width + 'px'; ghost.style.left = r.left + 'px'; ghost.style.top = r.top + 'px';
     document.body.appendChild(ghost); document.body.style.userSelect = 'none'; row.classList.add('dragging');
-    idrag = { row: row, list: list, ghost: ghost, dy: ev.clientY - r.top, at: -1, site: list.dataset.irows, k: row.dataset.k };
+    idrag = { row: row, list: list, ghost: ghost, dx: ev.clientX - r.left, dy: ev.clientY - r.top, x: ev.clientX, y: ev.clientY, site: list.dataset.irows, k: row.dataset.k, promo: row.dataset.promo === '1', mode: 'none', at: -1, kids: [], target: null, raf: 0 };
     try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+    var tick = function () { if (!idrag) return; if (idrag.y < 70) window.scrollBy(0, -14); else if (idrag.y > window.innerHeight - 70) window.scrollBy(0, 14); idrag.raf = requestAnimationFrame(tick); };
+    idrag.raf = requestAnimationFrame(tick);
   });
   document.addEventListener('pointermove', function (ev) {
     if (!idrag) return;
-    idrag.ghost.style.top = (ev.clientY - idrag.dy) + 'px';
-    var kids = Array.prototype.filter.call(idrag.list.children, function (c) { return c.classList.contains('irow') && c !== idrag.row && !c.classList.contains('lockrow'); });
-    var at = kids.length;
-    for (var i = 0; i < kids.length; i++) { var rc = kids[i].getBoundingClientRect(); if (ev.clientY < rc.top + rc.height / 2) { at = i; break; } }
-    idrag.at = at; idrag.kids = kids;
-    idrag.list.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); });
-    var line = document.createElement('li'); line.className = 'drop-line'; idrag.list.insertBefore(line, kids[at] || null);
-    var sc = $('#innerBody'), br = sc.getBoundingClientRect(); if (ev.clientY < br.top + 50) sc.scrollTop -= 12; else if (ev.clientY > br.bottom - 50) sc.scrollTop += 12;
+    idrag.x = ev.clientX; idrag.y = ev.clientY;
+    idrag.ghost.style.left = (ev.clientX - idrag.dx) + 'px'; idrag.ghost.style.top = (ev.clientY - idrag.dy) + 'px';
+    clearIndicators(); idrag.list.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); });
+    idrag.mode = 'none'; idrag.target = null;
+    var hit = document.elementFromPoint(ev.clientX, ev.clientY), own = hit && hit.closest('.irows');
+    if (own && own.dataset.irows === idrag.site) {
+      var kids = Array.prototype.filter.call(idrag.list.children, function (c) { return c.classList.contains('irow') && c !== idrag.row && !c.classList.contains('lockrow'); });
+      var at = kids.length;
+      for (var i = 0; i < kids.length; i++) { var rc = kids[i].getBoundingClientRect(); if (ev.clientY < rc.top + rc.height / 2) { at = i; break; } }
+      idrag.mode = 'own'; idrag.at = at; idrag.kids = kids;
+      var line = document.createElement('li'); line.className = 'drop-line'; idrag.list.insertBefore(line, kids[at] || null);
+    } else if (idrag.promo) {
+      var list = listAt(ev.clientX, ev.clientY);
+      if (list) {
+        var at2 = indexIn(list, ev.clientY, null), ks = Array.prototype.filter.call(list.children, function (c) { return c.classList.contains('item'); });
+        var empty = list.querySelector(':scope > .empty'); if (empty) empty.hidden = true;
+        var ln = document.createElement('li'); ln.className = 'drop-line'; list.insertBefore(ln, ks[at2] || null); list.classList.add('over');
+        idrag.mode = 'promote'; idrag.target = list.dataset.list; idrag.at = at2;
+      }
+    }
   });
   function endIdrag(apply) {
-    if (!idrag) return; var d = idrag; idrag = null; d.ghost.remove(); d.row.classList.remove('dragging'); document.body.style.userSelect = '';
-    d.list.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); });
-    if (!apply || d.at < 0) return;
+    if (!idrag) return; var d = idrag; idrag = null; cancelAnimationFrame(d.raf); d.ghost.remove(); d.row.classList.remove('dragging'); document.body.style.userSelect = '';
+    d.list.querySelectorAll('.drop-line').forEach(function (x) { x.remove(); }); clearIndicators();
+    document.querySelectorAll('.list > .empty[hidden]').forEach(function (x) { x.hidden = false; });
+    if (!apply) return;
     var site = siteById(d.site); if (!site) return;
-    var rows = innerRows(site), from = rows.findIndex(function (r) { return r.k === d.k; }); if (from < 0) return;
-    var target = d.kids[d.at]; var moved = rows.splice(from, 1)[0];
-    var to = target ? rows.findIndex(function (r) { return r.k === target.dataset.k; }) : rows.length;
-    if (to < 0) to = rows.length;
-    rows.splice(to, 0, moved); saveRows(site, rows); commit();
+    if (d.mode === 'own') {
+      var rows = innerRows(site), from = rows.findIndex(function (r) { return r.k === d.k; }); if (from < 0) return;
+      var target = d.kids[d.at], moved = rows.splice(from, 1)[0];
+      var to = target ? rows.findIndex(function (r) { return r.k === target.dataset.k; }) : rows.length;
+      if (to < 0) to = rows.length;
+      rows.splice(to, 0, moved); saveRows(site, rows); commit();
+    } else if (d.mode === 'promote') {
+      var dest = listById(d.target); if (!dest) return;
+      dest.splice(d.at, 0, { t: 'inner', id: L.newId('i'), site: d.site, k: d.k });
+      var rs = innerRows(site), rw = rs.find(function (r) { return r.k === d.k; });
+      if (rw) { rw.moved = true; rw.hide = true; saveRows(site, rs); }
+      var sec = document.querySelector('[data-list="' + d.target + '"]'); sec = sec && sec.closest('.file'); if (sec) state.active = sec.dataset.file;
+      commit(); toast('ย้ายไปเมนูหลักแล้ว (ซ่อนจากเมนูรอง)');
+    }
   }
   document.addEventListener('pointerup', function () { endIdrag(true); });
   document.addEventListener('pointercancel', function () { endIdrag(false); });
