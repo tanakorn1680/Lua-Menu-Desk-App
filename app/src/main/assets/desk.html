@@ -95,6 +95,7 @@ button { cursor: pointer; }
 .err { color: var(--bad); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }
 .privacy { font-size: 12.5px; color: var(--muted); }
 
+.wrap.empty .bench, .wrap.empty .notes { display: none; }
 .bench { display: grid; grid-template-columns: minmax(230px, 280px) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } }
 
@@ -199,7 +200,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
 @media (prefers-reduced-motion: no-preference) { .btn, .ib { transition: border-color .12s, background .12s; } }
 </style>
 
-<div class="wrap">
+<div class="wrap empty" id="wrap">
   <header>
     <h1>Lua Menu Desk</h1>
     <p class="sub">จัดเมนูของสคริปต์ GameGuardian แยก รวม หรือเรียงใหม่ แล้วส่งออกเป็นไฟล์ .lua</p>
@@ -1832,7 +1833,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     try { A = L.analyze(text); } catch (e) {
       var el = $('#srcErr'); el.textContent = 'อ่านสคริปต์ไม่ได้: ' + e.message; el.hidden = false; return false;
     }
-    $('#srcErr').hidden = true;
+    $('#srcErr').hidden = true; $('#wrap').classList.remove('empty');
     state.src = { name: name, text: text }; state.A = A; state.isDemo = !!isDemo;
     // reuse the layout saved for this script name, if most of its items still exist in the script
     var cand = loadStored(name), keep = false;
@@ -2090,6 +2091,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     svg.innerHTML = paths;
   }
   function renderBoard() {
+    if (!state.A) return;
     var old = $('#cv'), sl = old ? old.scrollLeft : 0, stp = old ? old.scrollTop : 0;
     buildTree();
     var files = allFiles();
@@ -2425,7 +2427,9 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
   /* ---------- boot ---------- */
   var last = null;
   try { last = JSON.parse(localStorage.getItem(SRC_KEY) || 'null'); } catch (e) { last = null; }
-  if (!(last && typeof last.text === 'string' && setSource(String(last.name || 'script.lua'), last.text, false))) setSource(DEMO_NAME, DEMO_LUA, true);
+  if (!(last && typeof last.text === 'string' && setSource(String(last.name || 'script.lua'), last.text, false))) {
+    $('#srcName').textContent = 'ยังไม่ได้โหลดสคริปต์'; $('#srcMeta').textContent = 'เลือกไฟล์ .lua เพื่อเริ่มจัดเมนู';
+  }
   if (window.AndroidBridge) enterAppMode();
   else if (window.claude && window.claude.use) {
     window.claude.use('downloads').then(function (d) { if (d) { state.dl = d; renderBoard(); } }, function () { /* no downloads here */ });
