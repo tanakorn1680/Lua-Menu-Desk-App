@@ -853,11 +853,11 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     });
     // which menus does each option open?  (inline gg.choice calls inside its branch, plus the first menu of every function the branch calls)
     const toks = A.toks, byId = new Map(A.sites.map(x => [x.id, x]));
-    // first menu shown by statement j; a function with no menu of its own just hands over to the functions it calls (a few levels deep)
+    // menus shown by statement j (every one of them, in order); a function with no menu of its own just hands over to the functions it calls (a few levels deep)
     const reach = (j, depth, seen) => {
       if (seen.has(j)) return []; seen.add(j);
-      const first = A.sites.filter(x => x.stmt === j).sort((x, y) => x.ord - y.ord)[0];
-      if (first) return [first.id];
+      const own = A.sites.filter(x => x.stmt === j).sort((x, y) => x.ord - y.ord);
+      if (own.length) return own.map(x => x.id);
       if (depth <= 0) return [];
       let r = []; A.info[j].deps.forEach(d => { r = r.concat(reach(d, depth - 1, seen)); });
       return r;
@@ -879,7 +879,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
             A.resolve(n, Infinity).forEach(j => {
               if (j === site.stmt) return;
               const first = A.sites.filter(x => x.stmt === j).sort((x, y) => x.ord - y.ord)[0];
-              if (first) { out.push(first.id); direct.push(first.id); } else reach(j, 4, new Set([site.stmt])).forEach(id => out.push(id));   // direct: strict (used to run options in the background); out: everything viewable
+              if (first) { direct.push(first.id); reach(j, 0, new Set([site.stmt])).forEach(id => out.push(id)); } else reach(j, 4, new Set([site.stmt])).forEach(id => out.push(id));   // direct: strict (used to run options in the background); out: everything viewable
             });
           });
         }
@@ -1086,6 +1086,11 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
         const args = splitAt(toks, open + 1, close - 1, [',']);
         let title = '';
         if (args[2]) for (let k = args[2][0]; k <= args[2][1]; k++) if (toks[k].kind === 'string') { title = unquoteLua(toks[k].text).split('\n')[0].trim(); break; }
+        // title given as a variable: use the first string it is assigned earlier in the same function
+        if (!title && args[2] && args[2][0] === args[2][1] && toks[args[2][0]].kind === 'name') {
+          const nm = toks[args[2][0]].text;
+          for (let k = st.a; k + 2 < i; k++) if (toks[k].kind === 'name' && toks[k].text === nm && toks[k + 1].text === '=' && toks[k + 2].kind === 'string') { title = unquoteLua(toks[k + 2].text).split('\n')[0].trim(); break; }
+        }
         const site = { id, stmt: si, fn: base, ord, line: toks[i].line, callStart: toks[i].start, callEnd: toks[open].end, title: (title.replace(/[\s\[\(:\-—]+$/, '') || base), mode: null, n: 0, entries: [], reason: '' };
         const fail = r => { site.mode = null; site.entries = []; site.reason = r; return site; };
         sites.push(site);
