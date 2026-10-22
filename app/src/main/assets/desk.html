@@ -853,14 +853,23 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     });
     // which menus does each option open?  (inline gg.choice calls inside its branch, plus the first menu of every function the branch calls)
     const toks = A.toks, byId = new Map(A.sites.map(x => [x.id, x]));
+    // first menu shown by statement j; a function with no menu of its own just hands over to the functions it calls (a few levels deep)
+    const reach = (j, depth, seen) => {
+      if (seen.has(j)) return []; seen.add(j);
+      const first = A.sites.filter(x => x.stmt === j).sort((x, y) => x.ord - y.ord)[0];
+      if (first) return [first.id];
+      if (depth <= 0) return [];
+      let r = []; A.info[j].deps.forEach(d => { r = r.concat(reach(d, depth - 1, seen)); });
+      return r;
+    };
     A.sites.forEach(site => {
       const st = A.info[site.stmt];
       site.entries.forEach(e => {
         e.opens = [];
         if (!e.br || e.fixed) return;
         const [b0, b1] = e.br; if (b1 < b0) return;
-        const lo = toks[b0].start, hi = toks[b1].end, out = [];
-        A.sites.forEach(x => { if (x !== site && x.stmt === site.stmt && x.callStart >= lo && x.callEnd <= hi) out.push(x.id); });
+        const lo = toks[b0].start, hi = toks[b1].end, out = [], direct = [];
+        A.sites.forEach(x => { if (x !== site && x.stmt === site.stmt && x.callStart >= lo && x.callEnd <= hi) { out.push(x.id); direct.push(x.id); } });
         let fn = null;
         try { const w = tokenize('local __f = function() end'), wt = w.slice(0, 6).concat(toks.slice(b0, b1 + 1), w.slice(6)); fn = freeNames(wt, 0, wt.length - 1); } catch (err) { fn = null; }
         if (fn) {
@@ -870,14 +879,15 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
             A.resolve(n, Infinity).forEach(j => {
               if (j === site.stmt) return;
               const first = A.sites.filter(x => x.stmt === j).sort((x, y) => x.ord - y.ord)[0];
-              if (first) out.push(first.id);
+              if (first) { out.push(first.id); direct.push(first.id); } else reach(j, 4, new Set([site.stmt])).forEach(id => out.push(id));   // direct: strict (used to run options in the background); out: everything viewable
             });
           });
         }
         // only an unambiguous, recognisable menu counts as "opened by this option" (conditional / wizard flows are left alone)
         const vis = id => { const c = byId.get(id); return !!c && (c.mode || (c.title && c.title !== c.fn)); };
-        const cand = [...new Set(out)].filter(id => id !== site.id && vis(id));
+        const cand = [...new Set(direct)].filter(id => id !== site.id && vis(id));
         e.opens = cand.length === 1 ? cand : [];
+        e.sees = [...new Set(out)].filter(id => id !== site.id);
       });
       site.root = null; site.chain = null;
     });
@@ -1992,9 +2002,18 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
 
   /* menu tree helpers */
   function siteById(id) { return state.A ? state.A.sites.find(function (x) { return x.id === id; }) : null; }
+  /* when several menus opened by one option share a title, tell them apart by the name of the function that shows them */
+  function dupSuffixes(kids, hint) {
+    var cnt = {}; kids.forEach(function (k) { var t = siteTitle(k, hint); cnt[t] = (cnt[t] || 0) + 1; });
+    return kids.map(function (k) { return cnt[siteTitle(k, hint)] > 1 ? humanize(String(k.fn).replace(/^[a-z]{2,4}_/, '')) : ''; });
+  }
   function visibleSite(s) { return !!s && !!(s.mode || (s.title && s.title !== s.fn)); }
   function primaryList(e) { return state.A.sites.filter(function (s) { return s.chain && s.chain.length === 0 && s.root === e.key && visibleSite(s); }); }
-  function childOf(en) { var s = en && en.opens && en.opens[0] ? siteById(en.opens[0]) : null; return visibleSite(s) ? s : null; }
+  /* every menu an option can open (several when the script picks one by game state), minus menus already open above it */
+  function childrenOf(en, anc) {
+    var out = []; ((en && (en.sees || en.opens)) || []).forEach(function (id) { var c = siteById(id); if (visibleSite(c) && out.indexOf(c) < 0 && !(anc && anc.indexOf(c.id) >= 0)) out.push(c); });
+    return out;
+  }
   function innerEntry(n) { var site = siteById(n.site), en = site && site.entries.find(function (x) { return x.k === n.k; }); return site && en ? { site: site, en: en } : null; }
   function innerRows(site) { return L.siteConfig(site, (state.layout.inner || {})[site.id]); }
   function saveRows(site, rows) {
@@ -2037,7 +2056,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     else if (n.t === 'inner') {
       var ie = innerEntry(n); cls += ' inner' + (ie ? '' : ' missing');
       raw = n.label || (ie ? rawDefault(ie.en) : ''); shown = ie ? esc(plain(raw)) : 'ไม่พบตัวเลือกนี้ในสคริปต์ (จะถูกข้าม)';
-      var ch = ie && childOf(ie.en); hasChild = !!ch && anc.indexOf(ch.id) < 0;
+      hasChild = !!ie && childrenOf(ie.en, anc).length > 0;
     } else {
       var e = entryByKey(n.key); cls += e ? '' : ' missing';
       raw = n.label || (e ? e.label : ''); shown = e ? esc(plain(raw)) : 'ไม่พบรายการนี้ในสคริปต์ (จะถูกข้าม)';
@@ -2058,7 +2077,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     if (r.moved) return '<li class="irow movedrow" data-k="' + kk + '" style="padding-left:14px"><div class="nm">' + esc(r.label ? plain(r.label) : entLabel(en)) + '<span class="sm">ย้ายไปแล้ว</span></div>' + ib('ihide', 'undo', 'นำกลับมาแสดงที่เมนูนี้') + '</li>';
     var editable = en.kind === 'lit', promo = !!(en.promo || en.force), open = !!state.open[rk], more = state.irowOpen === ekey, editing = state.edit === ekey;
     var shown = esc(r.label ? plain(r.label) : entLabel(en)) + (en.kind === 'pat' ? '<span class="sm">สคริปต์เติมต่อ</span>' : (!editable ? '<span class="sm" title="ข้อความเปลี่ยนตามสถานะในเกม">เปลี่ยนตามสถานะ</span>' : ''));
-    var ch = childOf(en), hasChild = !!ch && anc.indexOf(ch.id) < 0;
+    var hasChild = childrenOf(en, anc).length > 0;
     var chev = hasChild ? '<button class="ib chev' + (open ? ' on' : '') + '" type="button" data-act="toggle" data-rk="' + esc(rk) + '" aria-label="' + (open ? 'ปิดเมนูย่อย' : 'เปิดเมนูย่อย') + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + ico('chev') + '</button>' : '';
     var acts = more ? '<div class="acts">' + ib('iup', 'up', 'เลื่อนขึ้น') + ib('idown', 'down', 'เลื่อนลง') + (editable ? ib('iedit', 'edit', 'เปลี่ยนชื่อ') : '') + ib('ihide', r.hide ? 'eyeoff' : 'eye', r.hide ? 'แสดงตัวเลือกนี้' : 'ซ่อนตัวเลือกนี้') + '</div>' : '';
     return '<li class="irow' + (r.hide ? ' hid' : '') + (open ? ' open' : '') + '" data-k="' + kk + '" data-rid="' + rid(rk) + '"' + (promo ? ' data-promo="1"' : '') + '>' +
@@ -2087,13 +2106,13 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
       '<ul class="list" data-list="' + esc(n.id) + '">' + (n.items.length ? n.items.map(function (x) { return listRow(x, rk, []); }).join('') : '<li class="empty">กลุ่มว่าง ลากตัวเลือกมาวางที่นี่</li>') + '</ul>' +
       '<div class="card-foot"><select class="field" data-act="gadd" aria-label="เพิ่มเมนูจากสคริปต์">' + opts + '</select></div></section>';
   }
-  function siteCard(site, cid, rk, fileId, hint, anc) {
-    var title = siteTitle(site, hint), custom = !L.siteIsDefault(site, (state.layout.inner || {})[site.id]);
+  function siteCard(site, cid, rk, fileId, hint, anc, suffix, closeRk) {
+    var title = siteTitle(site, hint) + (suffix ? ' · ' + suffix : ''), custom = !L.siteIsDefault(site, (state.layout.inner || {})[site.id]);
     var body;
     if (!site.mode) body = '<div class="note-dyn">รายการของเมนูนี้สร้างตามข้อมูลในเกม จึงแสดงรายการไม่ได้ เมนูยังทำงานตามปกติ</div>';
     else body = '<ul class="irows" data-irows="' + esc(site.id) + '">' + innerRows(site).map(function (r) { return siteRow(site, r, rk, anc.concat([site.id])); }).join('') + '</ul>';
     return '<section class="card site isite" data-cid="' + cid + '" data-file="' + esc(fileId) + '" data-site="' + esc(site.id) + '" aria-label="' + esc(title) + '">' +
-      '<div class="card-head"><span class="lead">' + ico('list') + '</span><div class="ttl" title="' + esc(title) + '">' + esc(title) + '</div><span class="kind">เมนูในสคริปต์</span>' + ib('cclose', 'close', 'ปิด', { attrs: ' data-rk="' + esc(rk) + '"' }) + '</div>' + body +
+      '<div class="card-head"><span class="lead">' + ico('list') + '</span><div class="ttl" title="' + esc(title) + '">' + esc(title) + '</div><span class="kind">เมนูในสคริปต์</span>' + ib('cclose', 'close', 'ปิด', { attrs: ' data-rk="' + esc(closeRk || rk) + '"' }) + '</div>' + body +
       (site.mode ? '<div class="card-foot"><div class="status">ลาก ' + ico('grip') + ' ไปวางในเมนูหลักหรือกลุ่มเพื่อย้ายตัวเลือก หรือลากในการ์ดนี้เพื่อเรียงใหม่</div><div class="btns"><button class="btn small" type="button" data-act="ireset"' + (custom ? '' : ' disabled') + '>คืนค่าเดิม</button></div></div>' : '') + '</section>';
   }
 
@@ -2101,15 +2120,15 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
   function buildTree() {
     ctx = { cards: [], rids: {}, nr: 0, nc: 0 };
     var push = function (depth, parent, html) { var c = { cid: ++ctx.nc, depth: depth, parent: parent, html: html }; ctx.cards.push(c); return c; };
-    function addSite(site, rk, depth, parent, hint, anc, fileId) {
+    function addSite(site, rk, depth, parent, hint, anc, fileId, suffix) {
       if (anc.indexOf(site.id) >= 0) return;
       var c = push(depth, parent, null);
-      c.html = siteCard(site, c.cid, rk, fileId, hint, anc);
+      c.html = siteCard(site, c.cid, rk, fileId, hint, anc, suffix, parent && parent.rk);
       if (!site.mode) return;
       innerRows(site).forEach(function (r) {
         var en = r.e; if (en.fixed || en.locked) return;
-        var k2 = rk + '>' + r.k, ch = childOf(en);
-        if (ch && state.open[k2]) addSite(ch, k2, depth + 1, { cid: c.cid, rk: k2 }, entLabel(en), anc.concat([site.id]), fileId);
+        var k2 = rk + '>' + r.k;
+        if (state.open[k2]) { var kids = childrenOf(en, anc.concat([site.id])), sfx = dupSuffixes(kids, entLabel(en)); kids.forEach(function (ch, ci) { addSite(ch, k2 + '~' + ch.id, depth + 1, { cid: c.cid, rk: k2 }, entLabel(en), anc.concat([site.id]), fileId, sfx[ci]); }); }
       });
     }
     function expand(items, ck, depth, parentCid, fileId, anc) {
@@ -2123,8 +2142,8 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
           var e = entryByKey(n.key); if (!e) return;
           primaryList(e).forEach(function (s) { addSite(s, rk + '~' + s.id, depth + 1, { cid: parentCid, rk: rk }, n.label || e.label, anc, fileId); });
         } else if (n.t === 'inner') {
-          var ie = innerEntry(n), ch = ie && childOf(ie.en);
-          if (ch) addSite(ch, rk + '~' + ch.id, depth + 1, { cid: parentCid, rk: rk }, n.label || rawDefault(ie.en), anc, fileId);
+          var ie = innerEntry(n);
+          if (ie) { var kids2 = childrenOf(ie.en, anc), sfx2 = dupSuffixes(kids2, n.label || rawDefault(ie.en)); kids2.forEach(function (ch, ci) { addSite(ch, rk + '~' + ch.id, depth + 1, { cid: parentCid, rk: rk }, n.label || rawDefault(ie.en), anc, fileId, sfx2[ci]); }); }
         }
       });
     }
