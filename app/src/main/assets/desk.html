@@ -1,5 +1,6 @@
 <title>Lua Menu Desk</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
 <style>
 /* Layout: workbench. Source strip on top, a script-menu rail on the left, a pannable canvas of menu cards on the right. */
@@ -48,13 +49,9 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body {
-  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
-  padding-block: 20px 40px;
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-}
-.wrap { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; overflow: hidden; overscroll-behavior: none; }
+.app { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
 h1 { font-family: var(--font-display); font-size: 24px; line-height: 1.15; margin: 0; letter-spacing: .01em; text-wrap: balance; }
 h2 { font-family: var(--font-display); font-size: 15px; margin: 0; letter-spacing: .02em; }
 p { margin: 0; }
@@ -84,24 +81,79 @@ button { cursor: pointer; }
 }
 .field:focus { border-color: var(--accent); outline: none; }
 
-/* source strip */
-.source {
-  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 12px 14px; background: var(--card);
-  border: 1px solid var(--line); border-radius: 12px;
+/* app bar */
+.appbar {
+  flex: none; display: flex; align-items: center; gap: 2px; background: var(--card); border-bottom: 1px solid var(--line);
+  min-height: calc(54px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px));
 }
-.source .info { flex: 1 1 260px; min-width: 0; }
-.source .name { font-family: var(--font-mono); font-size: 13.5px; overflow-wrap: anywhere; }
+.bar-title { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.2; }
+.bar-app { font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: .01em; }
+.bar-name { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-name:empty { display: none; }
+.tb { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 10px; color: var(--fg); padding: 0; flex: none; }
+.tb .ic { width: 22px; height: 22px; }
+.tb:hover:not(:disabled) { background: var(--hover); }
+.tb:disabled { opacity: .32; cursor: default; }
+[data-ic] { display: grid; place-items: center; }
+.hist { display: contents; }
+.tb-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; flex: none; }
+
+/* welcome (nothing loaded yet) */
+.source { margin: auto; width: min(420px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 10px; padding: 22px 20px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+.source .mark { width: 44px; height: 44px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+.source .mark .ic { width: 24px; height: 24px; }
+.source .name { font-family: var(--font-display); font-weight: 700; font-size: 18px; overflow-wrap: anywhere; }
+.source .btn { min-height: 46px; width: 100%; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); margin-left: 6px; vertical-align: 1px; }
-.err { color: var(--bad); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }
-.privacy { font-size: 12.5px; color: var(--muted); }
+.err { color: var(--bad); font-size: 13.5px; overflow-wrap: anywhere; }
+.privacy { font-size: 12.5px; color: var(--muted); text-align: center; }
+.app:not(.empty) .source { display: none; }
+.app.empty .stage, .app.empty .dock, .app.empty .hist { display: none; }
 
-.wrap.empty .bench, .wrap.empty .notes { display: none; }
-.bench { display: grid; grid-template-columns: minmax(230px, 280px) minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+/* stage, dock */
+.stage { position: relative; flex: 1 1 0; min-height: 0; }
+.board { position: absolute; inset: 0; }
+.dock {
+  flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; background: var(--card); border-top: 1px solid var(--line);
+  padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+}
+.dk { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 52px; border: 0; background: transparent; color: var(--muted); font-size: 12px; border-radius: 10px; padding: 0 4px; }
+.dk .ic { width: 22px; height: 22px; }
+.dk:hover, .dk:active { background: var(--hover); color: var(--fg); }
+.dk.primary { color: var(--accent); }
+.zoomctl { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 12px; z-index: 5; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.zoomctl button { width: 44px; height: 42px; border: 0; background: transparent; display: grid; place-items: center; color: var(--fg); padding: 0; }
+.zoomctl button + button { border-top: 1px solid var(--line); }
+.zoomctl button:hover { background: var(--hover); }
+.zoomctl .zl { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
 
-/* script-menu rail */
-.rail { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.rail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+/* bottom sheets */
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 40; opacity: 0; pointer-events: none; transition: opacity .18s; }
+.scrim.on { opacity: 1; pointer-events: auto; }
+.sheet {
+  position: fixed; left: 50%; bottom: 0; width: min(560px, 100%); max-height: min(80vh, 680px); z-index: 41; display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: var(--lift);
+  transform: translate(-50%, 104%); visibility: hidden; transition: transform .2s ease, visibility 0s .2s; padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.sheet.on { transform: translate(-50%, 0); visibility: visible; transition: transform .2s ease, visibility 0s; }
+.sheet-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 54px; padding: 0 6px 0 18px; border-bottom: 1px solid var(--line); }
+.sheet-head h2 { flex: 1 1 0; font-size: 16px; }
+.sheet-head .sub { font-size: 12.5px; }
+.sheet-body { overflow: auto; padding: 4px 18px 18px; display: flex; flex-direction: column; gap: 4px; overscroll-behavior: contain; }
+body.sheet-dragging .sheet, body.sheet-dragging .scrim { opacity: 0 !important; pointer-events: none !important; }
+.sgroup { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 14px 0 4px; }
+.srow { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 8px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; border-radius: 0; color: var(--fg); }
+.srow:last-of-type { border-bottom: 0; }
+.srow .ic { width: 22px; height: 22px; color: var(--muted); }
+.srow .t { font-weight: 500; font-size: 14.5px; line-height: 1.3; }
+.srow .d { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.srow:hover .ic { color: var(--accent); }
+.folder { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); padding: 10px 0; }
+.sheet-body .btn.primary { min-height: 46px; width: 100%; margin-top: 8px; }
+.helptext { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+.helptext b { color: var(--fg); font-weight: 600; }
+
 .pal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .pal { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); min-width: 0; min-height: 42px; }
 .pal:last-child { border-bottom: 0; }
@@ -112,28 +164,21 @@ button { cursor: pointer; }
 .grip:hover { color: var(--accent); background: var(--hover); }
 .pal.used .name { color: var(--muted); }
 
-/* board */
-.board-wrap { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.toolbar .spacer { flex: 1 1 0; }
-.folder { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-.folder .field { width: 150px; }
-.hint { font-size: 13px; color: var(--muted); }
-
-/* canvas: dotted surface, absolutely placed menu cards, connectors drawn in SVG */
-.cv {
-  position: relative; height: clamp(440px, 76vh, 940px); overflow: auto; border: 1px solid var(--line); border-radius: 12px;
-  background-color: var(--canvas); background-image: radial-gradient(var(--dot) 1.1px, transparent 1.1px); background-size: 20px 20px;
-  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-}
+/* canvas: pannable, zoomable surface; absolutely placed menu cards; connectors drawn in SVG */
+.cv { position: absolute; inset: 0; overflow: auto; touch-action: none; overscroll-behavior: contain; background: var(--canvas); }
 .cv.panning { cursor: grabbing; user-select: none; }
-.cv-inner { position: relative; min-width: 100%; min-height: 100%; }
+.cv-sizer {
+  position: relative; min-width: 100%; min-height: 100%;
+  background-image: radial-gradient(var(--dot) calc(1.1px * var(--z, 1)), transparent calc(1.1px * var(--z, 1)));
+  background-size: calc(20px * var(--z, 1)) calc(20px * var(--z, 1));
+}
+.cv-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .cv-edges { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .edge { fill: none; stroke: var(--edge); stroke-width: 1.5; }
 .edge.on { stroke: var(--accent); }
 .edot { fill: var(--card); stroke: var(--edge); stroke-width: 1.5; }
 .edot.on { stroke: var(--accent); fill: var(--accent); }
-.empty-board { padding: 28px 16px; text-align: center; color: var(--muted); }
+.empty-board { position: absolute; inset: 0; display: grid; place-items: center; padding: 28px 24px; text-align: center; color: var(--muted); }
 
 .card {
   position: absolute; width: var(--cw); background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); left: 0; top: 0;
@@ -193,62 +238,93 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
 .notes { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
 .notes b { color: var(--fg); font-weight: 600; }
 #toast {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 70;
+  position: fixed; left: 50%; width: max-content; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 70;
   background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; max-width: calc(100% - 32px);
 }
 @media (max-width: 600px) { :root { --cw: 262px; } }
 @media (prefers-reduced-motion: no-preference) { .btn, .ib { transition: border-color .12s, background .12s; } }
 </style>
 
-<div class="wrap empty" id="wrap">
-  <header>
-    <h1>Lua Menu Desk</h1>
-    <p class="sub">จัดเมนูของสคริปต์ GameGuardian แยก รวม หรือเรียงใหม่ แล้วส่งออกเป็นไฟล์ .lua</p>
+<div class="app empty" id="wrap">
+  <header class="appbar">
+    <div class="bar-title"><span class="bar-app">Lua Menu Desk</span><span class="bar-name" id="barName"></span></div>
+    <span class="hist">
+      <button class="tb" id="undoBtn" type="button" disabled aria-label="ย้อนกลับ" title="ย้อนกลับ"></button>
+      <button class="tb" id="redoBtn" type="button" disabled aria-label="ทำซ้ำ" title="ทำซ้ำ"></button>
+    </span>
   </header>
 
   <section class="source" aria-label="สคริปต์ต้นฉบับ">
-    <div class="info">
-      <div><span class="name" id="srcName">-</span><span class="tag" id="srcTag" hidden>ตัวอย่าง</span></div>
-      <div class="sub" id="srcMeta"></div>
-      <div class="err" id="srcErr" hidden></div>
-    </div>
+    <div class="mark" id="srcMark"></div>
+    <div><span class="name" id="srcName">ยังไม่ได้โหลดสคริปต์</span><span class="tag" id="srcTag" hidden>ตัวอย่าง</span></div>
+    <div class="sub" id="srcMeta">เลือกไฟล์ .lua เพื่อเริ่มจัดเมนู</div>
+    <div class="err" id="srcErr" hidden></div>
     <input id="srcFile" type="file" accept=".lua,.txt,text/plain" hidden>
     <button class="btn primary" id="srcPick" type="button">โหลดสคริปต์ .lua</button>
     <button class="btn" id="srcDemo" type="button">ใช้สคริปต์ตัวอย่าง</button>
     <p class="privacy">ไฟล์ถูกประมวลผลในเบราว์เซอร์นี้เท่านั้น ไม่ถูกอัปโหลด</p>
   </section>
 
-  <div class="bench">
-    <aside class="rail" aria-label="เมนูในสคริปต์">
-      <div class="rail-head"><h2>เมนูในสคริปต์</h2><span class="sub" id="palCount"></span></div>
-      <ul class="pal-list" id="palette"></ul>
-      <p class="sub">ลากรายการไปวางในการ์ดเมนูหลัก หรือกด เพิ่ม เมนูเดียวใช้ได้หลายไฟล์</p>
-    </aside>
+  <main class="stage">
+    <div class="board" id="board"></div>
+    <div class="zoomctl" id="zoomctl" role="group" aria-label="ซูม">
+      <button id="zIn" type="button" aria-label="ซูมเข้า"></button>
+      <button id="zLabel" type="button" class="zl" aria-label="รีเซ็ตเป็น 100%">100%</button>
+      <button id="zOut" type="button" aria-label="ซูมออก"></button>
+      <button id="zFit" type="button" aria-label="พอดีหน้าจอ"></button>
+    </div>
+  </main>
 
-    <main class="board-wrap">
-      <div class="toolbar">
-        <button class="btn" id="tbNew" type="button">+ ไฟล์ใหม่</button>
-        <button class="btn" id="tbSplit" type="button">แยกทุกเมนูเป็นไฟล์เดี่ยว</button>
-        <button class="btn" id="tbMerge" type="button">รวมเป็นไฟล์เดียว</button>
-        <span class="spacer"></span>
-        <button class="btn" id="tbLayoutSave" type="button" hidden>บันทึกเลย์เอาต์</button>
-        <button class="btn" id="tbLayoutLoad" type="button">โหลดเลย์เอาต์</button>
-        <input id="layoutFile" type="file" accept=".json,application/json" hidden>
-        <label class="folder" id="folderWrap" hidden>โฟลเดอร์ใน Download<input class="field" id="folderIn" placeholder="เช่น GG (ว่าง = Download)" autocomplete="off"></label>
-        <button class="btn primary" id="tbZip" type="button" hidden>บันทึกทุกไฟล์ (.zip)</button>
-      </div>
-      <p class="hint">กดลูกศรที่ท้ายแถวเพื่อเปิดเมนูย่อยต่อไปเรื่อย ๆ ลากแถวเพื่อย้ายหรือเรียงใหม่ ลากพื้นที่ว่างเพื่อเลื่อนดูทั้งแผง</p>
-      <div class="board" id="board"></div>
-    </main>
+  <nav class="dock" aria-label="เครื่องมือ">
+    <button class="dk" id="dkMenus" type="button"></button>
+    <button class="dk" id="tbNew" type="button"></button>
+    <button class="dk" id="dkTools" type="button"></button>
+    <button class="dk primary" id="dkSave" type="button"></button>
+  </nav>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<section class="sheet" id="sheetPal" aria-label="เมนูในสคริปต์" role="dialog">
+  <div class="sheet-head"><h2>เมนูในสคริปต์</h2><span class="sub" id="palCount"></span><button class="tb" type="button" data-close aria-label="ปิด" data-ic="close"></button></div>
+  <div class="sheet-body">
+    <ul class="pal-list" id="palette"></ul>
+    <p class="helptext">ลากรายการไปวางในการ์ดเมนู หรือกด เพิ่ม เมนูเดียวใช้ได้หลายไฟล์</p>
   </div>
+</section>
 
-  <section class="notes">
+<section class="sheet" id="sheetTools" aria-label="เครื่องมือ" role="dialog">
+  <div class="sheet-head"><h2>เครื่องมือ</h2><button class="tb" type="button" data-close aria-label="ปิด" data-ic="close"></button></div>
+  <div class="sheet-body">
+    <div class="sgroup">สคริปต์</div>
+    <button class="srow" id="mSrcPick" type="button"><span data-ic="file"></span><span><span class="t">โหลดสคริปต์อื่น</span><br><span class="d">เลือกไฟล์ .lua จากเครื่อง</span></span></button>
+    <button class="srow" id="mSrcDemo" type="button"><span data-ic="menu"></span><span><span class="t">ใช้สคริปต์ตัวอย่าง</span><br><span class="d">ลองใช้งานโดยไม่ต้องมีไฟล์</span></span></button>
+    <div class="sgroup">จัดเรียงอัตโนมัติ</div>
+    <button class="srow" id="tbSplit" type="button"><span data-ic="split"></span><span><span class="t">แยกทุกเมนูเป็นไฟล์เดี่ยว</span><br><span class="d">สร้างไฟล์ละหนึ่งเมนู แทนที่ผังปัจจุบัน ย้อนกลับได้</span></span></button>
+    <button class="srow" id="tbMerge" type="button"><span data-ic="merge"></span><span><span class="t">รวมเป็นไฟล์เดียว</span><br><span class="d">รวมทุกเมนูไว้ในไฟล์เดียว แทนที่ผังปัจจุบัน ย้อนกลับได้</span></span></button>
+    <div class="sgroup">เลย์เอาต์</div>
+    <button class="srow" id="tbLayoutSave" type="button" hidden><span data-ic="save"></span><span><span class="t">บันทึกเลย์เอาต์</span><br><span class="d">เก็บผังที่จัดไว้เป็นไฟล์ .json</span></span></button>
+    <button class="srow" id="tbLayoutLoad" type="button"><span data-ic="file"></span><span><span class="t">โหลดเลย์เอาต์</span><br><span class="d">เปิดผังที่เคยบันทึกไว้</span></span></button>
+    <input id="layoutFile" type="file" accept=".json,application/json" hidden>
+    <div class="sgroup">วิธีใช้</div>
+    <div class="helptext"><p>กดลูกศรที่ท้ายแถวเพื่อเปิดเมนูย่อยต่อไปเรื่อย ๆ ลากแถวเพื่อย้ายหรือเรียงใหม่ ลากพื้นที่ว่างเพื่อเลื่อนดูทั้งแผง</p>
     <p><b>โค้ดของแต่ละเมนูไม่ถูกแก้</b> ทุกไฟล์คัดลอกโค้ดเดิมตามต้นฉบับ แล้วดึงมาเฉพาะส่วนที่เมนูนั้นต้องใช้ เมนูหลักที่สร้างใหม่ใช้ gg.choice รูปแบบเดียวกับต้นฉบับ</p>
     <p id="noteWeb">ไฟล์ที่บันทึกเป็น .txt ให้เปลี่ยนนามสกุลเป็น .lua ก่อนเปิดใน GameGuardian ไฟล์ใน .zip เป็น .lua อยู่แล้ว</p>
     <p id="noteApp" hidden>ไฟล์ถูกบันทึกเป็น .lua ในโฟลเดอร์ Download (หรือโฟลเดอร์ย่อยที่ตั้งไว้) เปิดใน GameGuardian ได้ทันที ถ้ามีไฟล์ชื่อเดียวกันที่แอพอื่นสร้างไว้ ระบบจะเติม (1) ต่อท้ายชื่อ ใช้โฟลเดอร์ย่อยแยกเพื่อไม่ให้ชื่อชน</p>
     <p>ไฟล์ที่เมนูข้างในพึ่งข้อมูลที่เมนูอื่นเตรียมไว้ (เช่นค่าที่ค้นหาเจอแล้ว) จะค้นหาใหม่เองในไฟล์นั้น เพราะแต่ละไฟล์รันแยกกัน</p>
-  </section>
-</div>
+  </div>
+  </div>
+</section>
+
+<section class="sheet" id="sheetSave" aria-label="บันทึก" role="dialog">
+  <div class="sheet-head"><h2>บันทึก</h2><button class="tb" type="button" data-close aria-label="ปิด" data-ic="close"></button></div>
+  <div class="sheet-body">
+    <label class="folder" id="folderWrap" hidden>โฟลเดอร์ใน Download<input class="field" id="folderIn" placeholder="เช่น GG (ว่าง = Download)" autocomplete="off"></label>
+    <button class="btn primary" id="tbZip" type="button" hidden>บันทึกทุกไฟล์ (.zip)</button>
+    <p class="helptext" id="saveNone" hidden>เบราว์เซอร์นี้บันทึกไฟล์โดยตรงไม่ได้ ใช้ปุ่มคัดลอกในการ์ดของแต่ละไฟล์แทน</p>
+    <p class="helptext" id="saveHint">ปุ่มบันทึกของแต่ละไฟล์อยู่ท้ายการ์ดไฟล์นั้น</p>
+  </div>
+</section>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
@@ -1787,7 +1863,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
 
   var STORE_KEY = 'luamenudesk.layout.v1:';
   var SRC_KEY = 'luamenudesk.src.v1';
-  var state = { src: null, A: null, layout: { version: 1, files: [] }, active: null, dl: null, isDemo: true, open: {}, rowOpen: null, irowOpen: null, edit: null };
+  var state = { src: null, A: null, layout: { version: 1, files: [] }, active: null, dl: null, isDemo: true, open: {}, rowOpen: null, irowOpen: null, edit: null, zoom: 1 };
   var drag = null;
   var toastTimer = 0;
 
@@ -1831,7 +1907,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
   function setSource(name, text, isDemo) {
     var A;
     try { A = L.analyze(text); } catch (e) {
-      var el = $('#srcErr'); el.textContent = 'อ่านสคริปต์ไม่ได้: ' + e.message; el.hidden = false; return false;
+      var el = $('#srcErr'); el.textContent = 'อ่านสคริปต์ไม่ได้: ' + e.message; el.hidden = false; toast('อ่านสคริปต์ไม่ได้'); return false;
     }
     $('#srcErr').hidden = true; $('#wrap').classList.remove('empty');
     state.src = { name: name, text: text }; state.A = A; state.isDemo = !!isDemo;
@@ -1845,8 +1921,8 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     }
     if (keep) state.layout = cand; else { state.layout = L.defaultLayout(A); ensureIds(state.layout); }
     state.active = allFiles()[0] ? allFiles()[0].id : null;
-    state.open = {}; state.rowOpen = null; state.irowOpen = null; state.edit = null;
-    persist(); renderAll(); return true;
+    state.open = {}; state.rowOpen = null; state.irowOpen = null; state.edit = null; state.zoom = 1;
+    histReset(); persist(); renderAll(); return true;
   }
 
   /* ---------- icons (inline SVG, no emoji) ---------- */
@@ -1867,7 +1943,15 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     menu: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 12h8M8 15h5"/>',
     list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
-    sync: '<path d="M20 11a8 8 0 0 0-14-4M4 4v4h4M4 13a8 8 0 0 0 14 4M20 20v-4h-4"/>'
+    sync: '<path d="M20 11a8 8 0 0 0-14-4M4 4v4h4M4 13a8 8 0 0 0 14 4M20 20v-4h-4"/>',
+    redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+    minus: '<path d="M5 12h14"/>',
+    fit: '<path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/>',
+    save: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+    tools: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+    file: '<path d="M7 3h7l5 5v13H7zM14 3v5h5"/>',
+    split: '<path d="M12 4v6M12 10L6 20M12 10l6 10"/>',
+    merge: '<path d="M6 4l6 10M18 4l-6 10M12 14v6"/>'
   };
   function ico(name, cls) { return '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + ICONS[name].replace(/class="f"/g, 'class="fillshape" fill="currentColor" stroke="none"') + '</svg>'; }
   function ib(act, icon, label, extra) { return '<button class="ib' + ((extra && extra.cls) ? ' ' + extra.cls : '') + '" type="button" data-act="' + act + '"' + ((extra && extra.attrs) || '') + ' aria-label="' + esc(label) + '" title="' + esc(label) + '">' + ico(icon) + '</button>'; }
@@ -1880,6 +1964,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
   /* ---------- rendering ---------- */
   function renderSource() {
     $('#srcName').textContent = state.src.name; $('#srcTag').hidden = !state.isDemo;
+    $('#barName').textContent = state.src.name + (state.isDemo ? ' (ตัวอย่าง)' : '');
     var e = state.A.menu.entries;
     $('#srcMeta').textContent = e.length + ' รายการในเมนูหลัก';
   }
@@ -1986,7 +2071,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     var warn = g.warnings.length ? '<div class="warn">' + esc(g.warnings.join(' / ')) + '</div>' : '';
     return '<section class="card file' + (f.id === state.active ? ' active' : '') + '" data-cid="' + cid + '" data-file="' + esc(f.id) + '">' +
       '<div class="card-head"><span class="lead">' + ico('menu') + '</span><input class="ttl" data-act="ftitle" value="' + esc(f.title) + '" placeholder="ชื่อหัวเมนู" aria-label="ชื่อหัวเมนู"><span class="kind">เมนูหลัก</span></div>' +
-      '<ul class="list" data-list="' + esc(f.id) + '">' + (f.items.length ? f.items.map(function (x) { return listRow(x, 'f:' + f.id, []); }).join('') : '<li class="empty">ลากเมนูมาวางที่นี่ หรือกด เพิ่ม ที่รายการด้านซ้าย</li>') + '</ul>' +
+      '<ul class="list" data-list="' + esc(f.id) + '">' + (f.items.length ? f.items.map(function (x) { return listRow(x, 'f:' + f.id, []); }).join('') : '<li class="empty">ยังไม่มีเมนู กด เมนู ด้านล่างเพื่อเลือกเมนูจากสคริปต์</li>') + '</ul>' +
       '<div class="card-foot"><div class="fn-row"><input class="field fname" data-act="fname" value="' + esc(f.name) + '" aria-label="ชื่อไฟล์"><span class="ext">.lua</span>' + ib('file-del', 'trash', 'ลบไฟล์นี้') + '</div>' +
       '<div class="btns"><button class="btn small" type="button" data-act="add-group">' + ico('plus') + 'กลุ่ม</button>' +
       (state.dl ? '<button class="btn small primary" type="button" data-act="save"' + (g.lua ? '' : ' disabled') + '>บันทึก ' + (state.app ? '.lua' : '.txt') + '</button>' : '') +
@@ -2060,6 +2145,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
   }
   function layoutCanvas() {
     var inner = $('#cvInner'); if (!inner) return;
+    inner.style.transform = 'none';   // measure at 1:1, the zoom is applied at the end
     var PAD = 20, GX = 76, GY = 18, HALF = 22;
     var CW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw')) || 288;
     var byDepth = {}, maxD = 0, maxB = 0;
@@ -2089,26 +2175,28 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
       paths += '<path class="edge" d="' + edgePath(x1, y1, x2, y2) + '"/><circle class="edot on" cx="' + x1 + '" cy="' + y1 + '" r="3.5"/><circle class="edot" cx="' + x2 + '" cy="' + y2 + '" r="3.5"/>';
     });
     svg.innerHTML = paths;
+    applyZoom();
   }
   function renderBoard() {
     if (!state.A) return;
     var old = $('#cv'), sl = old ? old.scrollLeft : 0, stp = old ? old.scrollTop : 0;
     buildTree();
     var files = allFiles();
-    $('#board').innerHTML = files.length ? '<div class="cv" id="cv"><div class="cv-inner" id="cvInner"><svg class="cv-edges" id="cvEdges" aria-hidden="true"></svg>' + ctx.cards.map(function (c) { return c.html; }).join('') + '</div></div>' : '<div class="empty-board">ยังไม่มีไฟล์ กด + ไฟล์ใหม่ หรือ รวมเป็นไฟล์เดียว</div>';
+    $('#board').innerHTML = files.length ? '<div class="cv" id="cv"><div class="cv-sizer" id="cvSizer"><div class="cv-inner" id="cvInner"><svg class="cv-edges" id="cvEdges" aria-hidden="true"></svg>' + ctx.cards.map(function (c) { return c.html; }).join('') + '</div></div></div>' : '<div class="empty-board">ยังไม่มีไฟล์ กด ไฟล์ใหม่ ด้านล่าง หรือเลือกรวมเป็นไฟล์เดียวใน เครื่องมือ</div>';
     if (files.length) { layoutCanvas(); var cv = $('#cv'); cv.scrollLeft = sl; cv.scrollTop = stp; }
     $('#tbZip').hidden = !(state.dl && files.length);
     $('#tbLayoutSave').hidden = !state.dl;
+    $('#zoomctl').hidden = !files.length; $('#saveNone').hidden = !!state.dl; $('#saveHint').hidden = !state.dl;
     var ed = document.querySelector('[data-edit]'); if (ed) { ed.focus(); try { ed.select(); } catch (e) { /* ignore */ } }
   }
-  function renderAll() { renderSource(); renderPalette(); renderBoard(); }
+  function renderAll() { renderSource(); renderPalette(); renderBoard(); renderHist(); }
   function revealRow(rk) {
     var cv = $('#cv'), id = ctx && ctx.rids[rk]; if (!cv || !id) return;
     var c = cv.querySelector('.card[data-prid="' + id + '"]'); if (!c) { var any = ctx.cards.find(function (x) { return x.prid === id; }); c = any && cv.querySelector('.card[data-cid="' + any.cid + '"]'); }
     if (!c) return;
-    var right = c.offsetLeft + c.offsetWidth + 24, bottom = c.offsetTop + Math.min(c.offsetHeight, cv.clientHeight * 0.6);
+    var z = state.zoom, right = (c.offsetLeft + c.offsetWidth + 24) * z, top = c.offsetTop * z, bottom = top + Math.min(c.offsetHeight * z, cv.clientHeight * 0.6);
     if (right > cv.scrollLeft + cv.clientWidth) cv.scrollTo({ left: right - cv.clientWidth, behavior: 'smooth' });
-    if (c.offsetTop < cv.scrollTop) cv.scrollTo({ top: Math.max(0, c.offsetTop - 16), behavior: 'smooth' });
+    if (top < cv.scrollTop) cv.scrollTo({ top: Math.max(0, top - 16), behavior: 'smooth' });
     else if (bottom > cv.scrollTop + cv.clientHeight) cv.scrollTo({ top: bottom - cv.clientHeight, behavior: 'smooth' });
   }
   function innerMove(site, k, to) {
@@ -2122,7 +2210,40 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     var e = state.A.menu.entries[idx]; var arr = listById(listId); if (!arr) return;
     arr.push({ t: 'item', id: L.newId('i'), key: e.key });
   }
-  function commit() { state.rowOpen = null; state.irowOpen = null; state.edit = null; syncMoved(); persist(); renderAll(); }
+  /* undo / redo: snapshots of the layout, one per committed change */
+  var hist = { past: [], future: [], cur: '' };
+  function snap() { return JSON.stringify(state.layout); }
+  function renderHist() { var u = $('#undoBtn'), r = $('#redoBtn'); if (u) u.disabled = !hist.past.length; if (r) r.disabled = !hist.future.length; }
+  function histReset() { hist.past = []; hist.future = []; hist.cur = snap(); }
+  function histPush() { var n = snap(); if (n === hist.cur) return; hist.past.push(hist.cur); if (hist.past.length > 100) hist.past.shift(); hist.cur = n; hist.future = []; }
+  function histGo(dir) {
+    var from = dir < 0 ? hist.past : hist.future, to = dir < 0 ? hist.future : hist.past; if (!from.length) return;
+    to.push(hist.cur); hist.cur = from.pop(); state.layout = JSON.parse(hist.cur);
+    if (!allFiles().some(function (f) { return f.id === state.active; })) state.active = allFiles()[0] ? allFiles()[0].id : null;
+    state.rowOpen = null; state.irowOpen = null; state.edit = null; persist(); renderAll(); toast(dir < 0 ? 'ย้อนกลับแล้ว' : 'ทำซ้ำแล้ว');
+  }
+  function commit() { state.rowOpen = null; state.irowOpen = null; state.edit = null; syncMoved(); histPush(); persist(); renderAll(); }
+
+  /* zoom */
+  var ZMIN = 0.25, ZMAX = 2;
+  function applyZoom() {
+    var cv = $('#cv'), inner = $('#cvInner'), sizer = $('#cvSizer'); if (!cv || !inner || !sizer) return;
+    var z = state.zoom;
+    cv.style.setProperty('--z', z); inner.style.transform = 'scale(' + z + ')';
+    sizer.style.width = Math.ceil(inner.offsetWidth * z) + 'px'; sizer.style.height = Math.ceil(inner.offsetHeight * z) + 'px';
+    var lb = $('#zLabel'); if (lb) lb.textContent = Math.round(z * 100) + '%';
+  }
+  function zoomTo(nz, fx, fy) {
+    var cv = $('#cv'); if (!cv) return; nz = Math.max(ZMIN, Math.min(ZMAX, nz)); var oz = state.zoom; if (Math.abs(nz - oz) < 0.0005) return;
+    var r = cv.getBoundingClientRect(); if (fx == null) { fx = r.left + r.width / 2; fy = r.top + r.height / 2; }
+    var px = fx - r.left, py = fy - r.top, ux = (cv.scrollLeft + px) / oz, uy = (cv.scrollTop + py) / oz;
+    state.zoom = nz; applyZoom(); cv.scrollLeft = ux * nz - px; cv.scrollTop = uy * nz - py;
+  }
+  function zoomFit() {
+    var cv = $('#cv'), inner = $('#cvInner'); if (!cv || !inner) return;
+    state.zoom = Math.max(ZMIN, Math.min(1, (cv.clientWidth - 8) / inner.offsetWidth, (cv.clientHeight - 8) / inner.offsetHeight)); applyZoom(); cv.scrollLeft = 0; cv.scrollTop = 0;
+  }
+  function revealCard(sel) { var cv = $('#cv'), c = cv && cv.querySelector(sel); if (!c) return; cv.scrollTo({ left: Math.max(0, c.offsetLeft * state.zoom - 16), top: Math.max(0, c.offsetTop * state.zoom - 16), behavior: 'smooth' }); }
 
   /* ---------- events ---------- */
   document.addEventListener('click', function (ev) {
@@ -2180,6 +2301,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     var t = ev.target;
     if (t && t.dataset && t.dataset.edit) { if (ev.key === 'Enter') { t.blur(); ev.preventDefault(); } else if (ev.key === 'Escape') { state.edit = null; renderBoard(); } return; }
     if (ev.key !== 'Escape') return;
+    if (document.querySelector('.sheet.on')) { closeSheets(); return; }
     if (idrag) endIdrag(false); else if (drag) { endDrag(); renderAll(); }
   });
   document.addEventListener('toggle', function (ev) {
@@ -2189,17 +2311,89 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     var i = g.lua.indexOf('-- Options moved out of inner menus'); if (i < 0) i = g.lua.indexOf('-- Menu groups (generated)'); if (i < 0) i = g.lua.indexOf('-- MAIN MENU (generated)');
     var s = g.lua.lastIndexOf('-- ====', i); pre.textContent = g.lua.slice(s >= 0 ? s : i);
   }, true);
-  // drag the empty canvas with a mouse to pan (touch scrolls natively)
-  document.addEventListener('pointerdown', function (ev) {
-    var cv = ev.target.closest && ev.target.closest('#cv'); if (!cv || ev.pointerType !== 'mouse' || ev.button !== 0) return;
-    if (ev.target.closest('.card')) return;
-    var sx = ev.clientX, sy = ev.clientY, l0 = cv.scrollLeft, t0 = cv.scrollTop; cv.classList.add('panning');
-    var mv = function (e) { cv.scrollLeft = l0 - (e.clientX - sx); cv.scrollTop = t0 - (e.clientY - sy); };
-    var up = function () { cv.classList.remove('panning'); document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); };
-    document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+  // canvas gestures: one finger or mouse on empty canvas pans, two fingers pinch-zoom, ctrl+wheel zooms
+  (function () {
+    var ptrs = {}, pan = null, pinch = null, raf = 0, vx = 0, vy = 0, lx = 0, ly = 0, lt = 0, swallow = false;
+    var cvOf = function (ev) { return ev.target.closest && ev.target.closest('#cv'); };
+    var two = function () { var k = Object.keys(ptrs); if (k.length < 2) return null; var a = ptrs[k[0]], b = ptrs[k[1]]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+    document.addEventListener('pointerdown', function (ev) {
+      var cv = cvOf(ev); if (!cv || drag || idrag) return;
+      if (ev.target.closest('.grip, input, select, textarea')) return;
+      if (ev.pointerType === 'mouse' && (ev.button !== 0 || ev.target.closest('.card'))) return;
+      cancelAnimationFrame(raf); ptrs[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      var n = Object.keys(ptrs).length;
+      if (n === 1) { pan = { sx: ev.clientX, sy: ev.clientY, l0: cv.scrollLeft, t0: cv.scrollTop, on: false }; pinch = null; vx = vy = 0; lx = ev.clientX; ly = ev.clientY; lt = ev.timeStamp; }
+      else if (n === 2) { var t = two(); pinch = { d0: t.d, z0: state.zoom, mx: t.x, my: t.y }; pan = null; cv.classList.add('panning'); }
+    });
+    document.addEventListener('pointermove', function (ev) {
+      var cv = $('#cv'); if (!cv || !ptrs[ev.pointerId]) return; ptrs[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      if (pinch) {
+        var t = two(); if (!t) return;
+        cv.scrollLeft -= t.x - pinch.mx; cv.scrollTop -= t.y - pinch.my; pinch.mx = t.x; pinch.my = t.y;
+        zoomTo(pinch.z0 * t.d / pinch.d0, t.x, t.y); return;
+      }
+      if (!pan) return;
+      var dx = ev.clientX - pan.sx, dy = ev.clientY - pan.sy;
+      if (!pan.on) { if (Math.hypot(dx, dy) < 6) return; pan.on = true; cv.classList.add('panning'); try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ } }
+      cv.scrollLeft = pan.l0 - dx; cv.scrollTop = pan.t0 - dy;
+      var dt = Math.max(1, ev.timeStamp - lt); vx = 0.7 * vx + 0.3 * (ev.clientX - lx) / dt; vy = 0.7 * vy + 0.3 * (ev.clientY - ly) / dt; lx = ev.clientX; ly = ev.clientY; lt = ev.timeStamp;
+    });
+    var end = function (ev) {
+      if (!ptrs[ev.pointerId]) return; delete ptrs[ev.pointerId];
+      var cv = $('#cv'), left = Object.keys(ptrs).length;
+      if (pinch && left < 2) { pinch = null; swallow = true; setTimeout(function () { swallow = false; }, 80); }
+      if (left === 0) {
+        if (cv) cv.classList.remove('panning');
+        if (pan && pan.on) {
+          swallow = true; setTimeout(function () { swallow = false; }, 80);
+          if (ev.pointerType !== 'mouse' && cv && ev.type === 'pointerup' && ev.timeStamp - lt < 80) {
+            var glide = function () { if (Math.abs(vx) < 0.02 && Math.abs(vy) < 0.02) return; cv.scrollLeft -= vx * 16; cv.scrollTop -= vy * 16; vx *= 0.94; vy *= 0.94; raf = requestAnimationFrame(glide); };
+            raf = requestAnimationFrame(glide);
+          }
+        }
+        pan = null;
+      }
+    };
+    document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+    document.addEventListener('click', function (ev) { if (swallow) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+    document.addEventListener('wheel', function (ev) {
+      if (!cvOf(ev) || !(ev.ctrlKey || ev.metaKey)) return;
+      ev.preventDefault(); zoomTo(state.zoom * Math.exp(-ev.deltaY * 0.002), ev.clientX, ev.clientY);
+    }, { passive: false });
+  })();
+
+  /* chrome: icons, app bar, dock, sheets */
+  function openSheet(id) { closeSheets(); $('#scrim').classList.add('on'); $('#' + id).classList.add('on'); }
+  function closeSheets() { document.querySelectorAll('.sheet.on').forEach(function (x) { x.classList.remove('on'); }); $('#scrim').classList.remove('on'); }
+  function initChrome() {
+    document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = ico(el.dataset.ic); });
+    $('#srcMark').innerHTML = ico('menu');
+    $('#undoBtn').innerHTML = ico('undo'); $('#redoBtn').innerHTML = ico('redo');
+    $('#zIn').innerHTML = ico('plus'); $('#zOut').innerHTML = ico('minus'); $('#zFit').innerHTML = ico('fit');
+    $('#dkMenus').innerHTML = ico('list') + '<span>เมนู</span>'; $('#tbNew').innerHTML = ico('plus') + '<span>ไฟล์ใหม่</span>';
+    $('#dkTools').innerHTML = ico('tools') + '<span>เครื่องมือ</span>'; $('#dkSave').innerHTML = ico('save') + '<span>บันทึก</span>';
+    $('#undoBtn').onclick = function () { histGo(-1); }; $('#redoBtn').onclick = function () { histGo(1); };
+    $('#zIn').onclick = function () { zoomTo(state.zoom * 1.25); }; $('#zOut').onclick = function () { zoomTo(state.zoom / 1.25); };
+    $('#zLabel').onclick = function () { zoomTo(1); }; $('#zFit').onclick = zoomFit;
+    $('#dkMenus').onclick = function () { openSheet('sheetPal'); }; $('#dkTools').onclick = function () { openSheet('sheetTools'); }; $('#dkSave').onclick = function () { openSheet('sheetSave'); };
+    $('#scrim').onclick = closeSheets;
+    window.__appBack = function () { if (document.querySelector('.sheet.on')) { closeSheets(); return true; } return false; };   // Android Back closes an open sheet first
+    document.querySelectorAll('[data-close]').forEach(function (b) { b.onclick = closeSheets; });
+    $('#sheetTools').addEventListener('click', function (ev) { if (ev.target.closest('.srow')) setTimeout(closeSheets, 0); });
+    $('#sheetSave').addEventListener('click', function (ev) { if (ev.target.closest('#tbZip')) setTimeout(closeSheets, 0); });
+    $('#mSrcPick').onclick = function () { $('#srcFile').click(); }; $('#mSrcDemo').onclick = function () { $('#srcDemo').click(); };
+  }
+  document.addEventListener('keydown', function (ev) {
+    var t = ev.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    var mod = ev.ctrlKey || ev.metaKey, k = (ev.key || '').toLowerCase();
+    if (mod && k === 'z') { ev.preventDefault(); histGo(ev.shiftKey ? 1 : -1); }
+    else if (mod && k === 'y') { ev.preventDefault(); histGo(1); }
+    else if (!mod && (k === '+' || k === '=')) zoomTo(state.zoom * 1.25);
+    else if (!mod && k === '-') zoomTo(state.zoom / 1.25);
+    else if (!mod && k === '0') zoomFit();
   });
 
-  $('#tbNew').onclick = function () { var f = newFile(uniqueName('Script')); state.active = f.id; commit(); };
+  $('#tbNew').onclick = function () { var f = newFile(uniqueName('Script')); state.active = f.id; commit(); revealCard('.card.file.active'); };
   $('#tbSplit').onclick = function () {
     state.layout.files = []; var seen = {};
     state.A.menu.entries.forEach(function (e) { if (e.actionSrc === 'os.exit()') return; var n = fnName(e.actionSrc); seen[n] = (seen[n] || 0) + 1; newFile(seen[n] > 1 ? n + '_' + seen[n] : n, [{ t: 'item', id: L.newId('i'), key: e.key }]); });
@@ -2282,12 +2476,13 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
   }
   function makeGhost(src, ev) {
     var r = src.getBoundingClientRect(), g = src.cloneNode(true);
-    g.classList.add('ghost'); g.style.width = r.width + 'px'; g.style.left = r.left + 'px'; g.style.top = r.top + 'px';
+    var S = src.closest('#cvInner') ? state.zoom : 1;
+    g.classList.add('ghost'); g.style.width = (r.width / S) + 'px'; g.style.transformOrigin = '0 0'; if (S !== 1) g.style.transform = 'scale(' + S + ')'; g.style.left = r.left + 'px'; g.style.top = r.top + 'px';
     g.querySelectorAll('.acts').forEach(function (x) { x.remove(); });
     document.body.appendChild(g); document.body.style.userSelect = 'none';
     return { el: g, dx: ev.clientX - r.left, dy: ev.clientY - r.top };
   }
-  function endDrag() { if (!drag) return; drag.ghost.remove(); if (drag.srcEl) drag.srcEl.classList.remove('dragging'); clearIndicators(); document.body.style.userSelect = ''; cancelAnimationFrame(drag.raf); drag = null; }
+  function endDrag() { if (!drag) return; drag.ghost.remove(); if (drag.srcEl) drag.srcEl.classList.remove('dragging'); clearIndicators(); document.body.style.userSelect = ''; document.body.classList.remove('sheet-dragging'); cancelAnimationFrame(drag.raf); drag = null; }
 
   /* rows of the main menus / groups, and entries of the script-menu rail */
   document.addEventListener('pointerdown', function (ev) {
@@ -2297,6 +2492,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
     var g = makeGhost(srcEl, ev);
     drag = { kind: pal ? 'new' : 'move', idx: pal ? +pal.dataset.idx : null, id: li ? li.dataset.id : null, srcEl: li || null, ghost: g.el, dx: g.dx, dy: g.dy, x: ev.clientX, y: ev.clientY, target: null, at: 0, raf: 0 };
     if (li) li.classList.add('dragging');
+    if (pal) document.body.classList.add('sheet-dragging');
     try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
     var tick = function () { if (!drag) return; autoScroll(drag.x, drag.y); drag.raf = requestAnimationFrame(tick); };
     drag.raf = requestAnimationFrame(tick);
@@ -2333,7 +2529,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
       dest.splice(at, 0, loc.node);
     }
     var el = document.querySelector('[data-list="' + target + '"]'), cd = el && el.closest('.card'); if (cd && cd.dataset.file) state.active = cd.dataset.file;
-    commit();
+    commit(); if (d.kind === 'new') closeSheets();
   }
   document.addEventListener('pointerup', finishDrag);
   document.addEventListener('pointercancel', function () { endDrag(); showEmpty(); });
@@ -2425,6 +2621,7 @@ details pre { margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
   }
 
   /* ---------- boot ---------- */
+  initChrome();
   var last = null;
   try { last = JSON.parse(localStorage.getItem(SRC_KEY) || 'null'); } catch (e) { last = null; }
   if (!(last && typeof last.text === 'string' && setSource(String(last.name || 'script.lua'), last.text, false))) {
